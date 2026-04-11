@@ -281,373 +281,153 @@ class TranslationRuleSet:
         """Iterate over all registered rules."""
         return iter(self._rules)
 
-    @staticmethod
-    def _add_zho_deu_rules(rs: TranslationRuleSet) -> None:
-        """Add ZHO ↔ DEU translation rules (classifier ↔ case/gender)."""
-        # ── ZHO → DEU (classifier → gender/plural) ────────────────
-
+    # ── Declarative rule definitions ──────────────────────────
+    # Each tuple: (rule_id, from_lang, to_lang, source_pattern,
+    #               target_pattern, transform_kind, confidence_factor, notes)
+    _TRANSLATION_RULE_DEFINITIONS: list[tuple] = [
+        # ── ZHO ↔ DEU (classifier ↔ case/gender) ────────────────
         # ZHO classifiers → DEU gender + plural
-        rs.add(TranslationRule(
-            rule_id="zho_deu_person_mask",
-            from_lang="zho", to_lang="deu",
-            source_pattern="person",
-            target_pattern="maskulinum",
-            transform_kind=TransformKind.CLASSIFIER_TO_PLURAL,
-            confidence_factor=0.85,
-            notes="ZHO person classifier (位) → DEU Maskulinum (active agent)",
-        ))
-        rs.add(TranslationRule(
-            rule_id="zho_deu_animal_mask",
-            from_lang="zho", to_lang="deu",
-            source_pattern="animal",
-            target_pattern="maskulinum",
-            transform_kind=TransformKind.CLASSIFIER_TO_PLURAL,
-            confidence_factor=0.8,
-            notes="ZHO animal classifier (隻) → DEU Maskulinum",
-        ))
-        rs.add(TranslationRule(
-            rule_id="zho_deu_collective_fem",
-            from_lang="zho", to_lang="deu",
-            source_pattern="collective",
-            target_pattern="femininum",
-            transform_kind=TransformKind.CLASSIFIER_TO_PLURAL,
-            confidence_factor=0.85,
-            notes="ZHO collective classifier (群) → DEU Femininum (container)",
-        ))
-        rs.add(TranslationRule(
-            rule_id="zho_deu_flat_neut",
-            from_lang="zho", to_lang="deu",
-            source_pattern="flat_object",
-            target_pattern="neutrum",
-            transform_kind=TransformKind.CLASSIFIER_TO_PLURAL,
-            confidence_factor=0.75,
-            notes="ZHO flat object classifier (張) → DEU Neutrum (value)",
-        ))
-        rs.add(TranslationRule(
-            rule_id="zho_deu_long_neut",
-            from_lang="zho", to_lang="deu",
-            source_pattern="long_flexible",
-            target_pattern="neutrum",
-            transform_kind=TransformKind.CLASSIFIER_TO_PLURAL,
-            confidence_factor=0.75,
-            notes="ZHO long flexible classifier (條) → DEU Neutrum",
-        ))
-        rs.add(TranslationRule(
-            rule_id="zho_deu_round_neut",
-            from_lang="zho", to_lang="deu",
-            source_pattern="small_round",
-            target_pattern="neutrum",
-            transform_kind=TransformKind.CLASSIFIER_TO_PLURAL,
-            confidence_factor=0.75,
-            notes="ZHO small round classifier (顆) → DEU Neutrum",
-        ))
-        rs.add(TranslationRule(
-            rule_id="zho_deu_machine_mask",
-            from_lang="zho", to_lang="deu",
-            source_pattern="machine",
-            target_pattern="maskulinum",
-            transform_kind=TransformKind.CLASSIFIER_TO_PLURAL,
-            confidence_factor=0.85,
-            notes="ZHO machine classifier (台) → DEU Maskulinum (active)",
-        ))
-        rs.add(TranslationRule(
-            rule_id="zho_deu_pair_fem",
-            from_lang="zho", to_lang="deu",
-            source_pattern="pair",
-            target_pattern="femininum",
-            transform_kind=TransformKind.CLASSIFIER_TO_PLURAL,
-            confidence_factor=0.85,
-            notes="ZHO pair classifier (雙) → DEU Femininum (container)",
-        ))
-        rs.add(TranslationRule(
-            rule_id="zho_deu_volume_fem",
-            from_lang="zho", to_lang="deu",
-            source_pattern="volume",
-            target_pattern="femininum",
-            transform_kind=TransformKind.CLASSIFIER_TO_PLURAL,
-            confidence_factor=0.8,
-            notes="ZHO volume classifier (杯/瓶) → DEU Femininum (container)",
-        ))
+        ("zho_deu_person_mask", "zho", "deu", "person", "maskulinum",
+         TransformKind.CLASSIFIER_TO_PLURAL, 0.85,
+         "ZHO person classifier (位) → DEU Maskulinum (active agent)"),
+        ("zho_deu_animal_mask", "zho", "deu", "animal", "maskulinum",
+         TransformKind.CLASSIFIER_TO_PLURAL, 0.8,
+         "ZHO animal classifier (隻) → DEU Maskulinum"),
+        ("zho_deu_collective_fem", "zho", "deu", "collective", "femininum",
+         TransformKind.CLASSIFIER_TO_PLURAL, 0.85,
+         "ZHO collective classifier (群) → DEU Femininum (container)"),
+        ("zho_deu_flat_neut", "zho", "deu", "flat_object", "neutrum",
+         TransformKind.CLASSIFIER_TO_PLURAL, 0.75,
+         "ZHO flat object classifier (張) → DEU Neutrum (value)"),
+        ("zho_deu_long_neut", "zho", "deu", "long_flexible", "neutrum",
+         TransformKind.CLASSIFIER_TO_PLURAL, 0.75,
+         "ZHO long flexible classifier (條) → DEU Neutrum"),
+        ("zho_deu_round_neut", "zho", "deu", "small_round", "neutrum",
+         TransformKind.CLASSIFIER_TO_PLURAL, 0.75,
+         "ZHO small round classifier (顆) → DEU Neutrum"),
+        ("zho_deu_machine_mask", "zho", "deu", "machine", "maskulinum",
+         TransformKind.CLASSIFIER_TO_PLURAL, 0.85,
+         "ZHO machine classifier (台) → DEU Maskulinum (active)"),
+        ("zho_deu_pair_fem", "zho", "deu", "pair", "femininum",
+         TransformKind.CLASSIFIER_TO_PLURAL, 0.85,
+         "ZHO pair classifier (雙) → DEU Femininum (container)"),
+        ("zho_deu_volume_fem", "zho", "deu", "volume", "femininum",
+         TransformKind.CLASSIFIER_TO_PLURAL, 0.8,
+         "ZHO volume classifier (杯/瓶) → DEU Femininum (container)"),
+        # ZHO scope → DEU Kasus
+        ("zho_deu_scope_nom", "zho", "deu", "flat_surface", "nominativ",
+         TransformKind.SCOPE_TO_PARTICLE, 0.7,
+         "ZHO spatial scope (面) → DEU Nominativ (subject scope)"),
+        ("zho_deu_scope_acc", "zho", "deu", "spatial_extent", "akkusativ",
+         TransformKind.SCOPE_TO_PARTICLE, 0.65,
+         "ZHO spatial extent (段) → DEU Akkusativ (object scope)"),
+        # DEU → ZHO (reverse)
+        ("deu_zho_mask_person", "deu", "zho", "maskulinum", "person",
+         TransformKind.CLASSIFIER_TO_PLURAL, 0.85,
+         "DEU Maskulinum → ZHO person classifier (位)"),
+        ("deu_zho_fem_collective", "deu", "zho", "femininum", "collective",
+         TransformKind.CLASSIFIER_TO_PLURAL, 0.85,
+         "DEU Femininum → ZHO collective classifier (群)"),
+        ("deu_zho_neut_flat", "deu", "zho", "neutrum", "flat_object",
+         TransformKind.CLASSIFIER_TO_PLURAL, 0.75,
+         "DEU Neutrum → ZHO flat object classifier (張)"),
+        ("deu_zho_nom_surface", "deu", "zho", "nominativ", "flat_surface",
+         TransformKind.SCOPE_TO_PARTICLE, 0.7,
+         "DEU Nominativ → ZHO flat surface scope (面)"),
+        ("deu_zho_acc_extent", "deu", "zho", "akkusativ", "spatial_extent",
+         TransformKind.SCOPE_TO_PARTICLE, 0.65,
+         "DEU Akkusativ → ZHO spatial extent scope (段)"),
 
-        # ZHO 量词作用域 → DEU Kasus作用域
-        rs.add(TranslationRule(
-            rule_id="zho_deu_scope_nom",
-            from_lang="zho", to_lang="deu",
-            source_pattern="flat_surface",
-            target_pattern="nominativ",
-            transform_kind=TransformKind.SCOPE_TO_PARTICLE,
-            confidence_factor=0.7,
-            notes="ZHO spatial scope (面) → DEU Nominativ (subject scope)",
-        ))
-        rs.add(TranslationRule(
-            rule_id="zho_deu_scope_acc",
-            from_lang="zho", to_lang="deu",
-            source_pattern="spatial_extent",
-            target_pattern="akkusativ",
-            transform_kind=TransformKind.SCOPE_TO_PARTICLE,
-            confidence_factor=0.65,
-            notes="ZHO spatial extent (段) → DEU Akkusativ (object scope)",
-        ))
-
-        # ── DEU → ZHO (reverse) ──────────────────────────────────
-        rs.add(TranslationRule(
-            rule_id="deu_zho_mask_person",
-            from_lang="deu", to_lang="zho",
-            source_pattern="maskulinum",
-            target_pattern="person",
-            transform_kind=TransformKind.CLASSIFIER_TO_PLURAL,
-            confidence_factor=0.85,
-            notes="DEU Maskulinum → ZHO person classifier (位)",
-        ))
-        rs.add(TranslationRule(
-            rule_id="deu_zho_fem_collective",
-            from_lang="deu", to_lang="zho",
-            source_pattern="femininum",
-            target_pattern="collective",
-            transform_kind=TransformKind.CLASSIFIER_TO_PLURAL,
-            confidence_factor=0.85,
-            notes="DEU Femininum → ZHO collective classifier (群)",
-        ))
-        rs.add(TranslationRule(
-            rule_id="deu_zho_neut_flat",
-            from_lang="deu", to_lang="zho",
-            source_pattern="neutrum",
-            target_pattern="flat_object",
-            transform_kind=TransformKind.CLASSIFIER_TO_PLURAL,
-            confidence_factor=0.75,
-            notes="DEU Neutrum → ZHO flat object classifier (張)",
-        ))
-
-        # DEU Kasus → ZHO 量词 scope
-        rs.add(TranslationRule(
-            rule_id="deu_zho_nom_surface",
-            from_lang="deu", to_lang="zho",
-            source_pattern="nominativ",
-            target_pattern="flat_surface",
-            transform_kind=TransformKind.SCOPE_TO_PARTICLE,
-            confidence_factor=0.7,
-            notes="DEU Nominativ → ZHO flat surface scope (面)",
-        ))
-        rs.add(TranslationRule(
-            rule_id="deu_zho_acc_extent",
-            from_lang="deu", to_lang="zho",
-            source_pattern="akkusativ",
-            target_pattern="spatial_extent",
-            transform_kind=TransformKind.SCOPE_TO_PARTICLE,
-            confidence_factor=0.65,
-            notes="DEU Akkusativ → ZHO spatial extent scope (段)",
-        ))
-
-    @staticmethod
-    def _add_deu_kor_rules(rs: TranslationRuleSet) -> None:
-        """Add DEU ↔ KOR translation rules (case ↔ honorific/particles)."""
-        # ── DEU → KOR (case → honorific/particles) ──────────────
-
+        # ── DEU ↔ KOR (case ↔ honorific/particles) ───────────────
         # DEU Kasus → KOR particles
-        rs.add(TranslationRule(
-            rule_id="deu_kor_nom_i",
-            from_lang="deu", to_lang="kor",
-            source_pattern="nominativ",
-            target_pattern="subject_honorific",
-            transform_kind=TransformKind.SCOPE_TO_PARTICLE,
-            confidence_factor=0.8,
-            notes="DEU Nominativ (이/가 subject marker) → KOR subject_honorific",
-        ))
-        rs.add(TranslationRule(
-            rule_id="deu_kor_acc_eul",
-            from_lang="deu", to_lang="kor",
-            source_pattern="akkusativ",
-            target_pattern="object_honorific",
-            transform_kind=TransformKind.SCOPE_TO_PARTICLE,
-            confidence_factor=0.8,
-            notes="DEU Akkusativ (을/를 object marker) → KOR object_honorific",
-        ))
-        rs.add(TranslationRule(
-            rule_id="deu_kor_dat_ege",
-            from_lang="deu", to_lang="kor",
-            source_pattern="dativ",
-            target_pattern="haeyoche",
-            transform_kind=TransformKind.GENDER_TO_HONORIFIC,
-            confidence_factor=0.7,
-            notes="DEU Dativ (에게 recipient) → KOR haeyoche (polite register)",
-        ))
-        rs.add(TranslationRule(
-            rule_id="deu_kor_gen_ui",
-            from_lang="deu", to_lang="kor",
-            source_pattern="genitiv",
-            target_pattern="haerache",
-            transform_kind=TransformKind.GENDER_TO_HONORIFIC,
-            confidence_factor=0.65,
-            notes="DEU Genitiv (의 possessive) → KOR haerache (plain register)",
-        ))
-
+        ("deu_kor_nom_i", "deu", "kor", "nominativ", "subject_honorific",
+         TransformKind.SCOPE_TO_PARTICLE, 0.8,
+         "DEU Nominativ (이/가 subject marker) → KOR subject_honorific"),
+        ("deu_kor_acc_eul", "deu", "kor", "akkusativ", "object_honorific",
+         TransformKind.SCOPE_TO_PARTICLE, 0.8,
+         "DEU Akkusativ (을/를 object marker) → KOR object_honorific"),
+        ("deu_kor_dat_ege", "deu", "kor", "dativ", "haeyoche",
+         TransformKind.GENDER_TO_HONORIFIC, 0.7,
+         "DEU Dativ (에게 recipient) → KOR haeyoche (polite register)"),
+        ("deu_kor_gen_ui", "deu", "kor", "genitiv", "haerache",
+         TransformKind.GENDER_TO_HONORIFIC, 0.65,
+         "DEU Genitiv (의 possessive) → KOR haerache (plain register)"),
         # DEU Geschlecht → KOR honorific register
-        rs.add(TranslationRule(
-            rule_id="deu_kor_mask_formal",
-            from_lang="deu", to_lang="kor",
-            source_pattern="maskulinum",
-            target_pattern="hasipsioche",
-            transform_kind=TransformKind.GENDER_TO_HONORIFIC,
-            confidence_factor=0.7,
-            notes="DEU Maskulinum → KOR hasipsioche (formal highest, active agent)",
-        ))
-        rs.add(TranslationRule(
-            rule_id="deu_kor_fem_polite",
-            from_lang="deu", to_lang="kor",
-            source_pattern="femininum",
-            target_pattern="haeyoche",
-            transform_kind=TransformKind.GENDER_TO_HONORIFIC,
-            confidence_factor=0.7,
-            notes="DEU Femininum → KOR haeyoche (polite, container/receiver)",
-        ))
-        rs.add(TranslationRule(
-            rule_id="deu_kor_neut_plain",
-            from_lang="deu", to_lang="kor",
-            source_pattern="neutrum",
-            target_pattern="haeche",
-            transform_kind=TransformKind.GENDER_TO_HONORIFIC,
-            confidence_factor=0.65,
-            notes="DEU Neutrum → KOR haeche (informal, value/data)",
-        ))
+        ("deu_kor_mask_formal", "deu", "kor", "maskulinum", "hasipsioche",
+         TransformKind.GENDER_TO_HONORIFIC, 0.7,
+         "DEU Maskulinum → KOR hasipsioche (formal highest, active agent)"),
+        ("deu_kor_fem_polite", "deu", "kor", "femininum", "haeyoche",
+         TransformKind.GENDER_TO_HONORIFIC, 0.7,
+         "DEU Femininum → KOR haeyoche (polite, container/receiver)"),
+        ("deu_kor_neut_plain", "deu", "kor", "neutrum", "haeche",
+         TransformKind.GENDER_TO_HONORIFIC, 0.65,
+         "DEU Neutrum → KOR haeche (informal, value/data)"),
+        # KOR → DEU (reverse)
+        ("kor_deu_subj_nom", "kor", "deu", "subject_honorific", "nominativ",
+         TransformKind.SCOPE_TO_PARTICLE, 0.8,
+         "KOR subject_honorific → DEU Nominativ"),
+        ("kor_deu_obj_acc", "kor", "deu", "object_honorific", "akkusativ",
+         TransformKind.SCOPE_TO_PARTICLE, 0.8,
+         "KOR object_honorific → DEU Akkusativ"),
+        ("kor_deu_formal_mask", "kor", "deu", "hasipsioche", "maskulinum",
+         TransformKind.GENDER_TO_HONORIFIC, 0.7,
+         "KOR hasipsioche → DEU Maskulinum (formal → active)"),
+        ("kor_deu_polite_fem", "kor", "deu", "haeyoche", "femininum",
+         TransformKind.GENDER_TO_HONORIFIC, 0.7,
+         "KOR haeyoche → DEU Femininum (polite → container)"),
+        ("kor_deu_plain_neut", "kor", "deu", "haeche", "neutrum",
+         TransformKind.GENDER_TO_HONORIFIC, 0.65,
+         "KOR haeche → DEU Neutrum (informal → value)"),
 
-        # ── KOR → DEU (reverse) ──────────────────────────────────
-        rs.add(TranslationRule(
-            rule_id="kor_deu_subj_nom",
-            from_lang="kor", to_lang="deu",
-            source_pattern="subject_honorific",
-            target_pattern="nominativ",
-            transform_kind=TransformKind.SCOPE_TO_PARTICLE,
-            confidence_factor=0.8,
-            notes="KOR subject_honorific → DEU Nominativ",
-        ))
-        rs.add(TranslationRule(
-            rule_id="kor_deu_obj_acc",
-            from_lang="kor", to_lang="deu",
-            source_pattern="object_honorific",
-            target_pattern="akkusativ",
-            transform_kind=TransformKind.SCOPE_TO_PARTICLE,
-            confidence_factor=0.8,
-            notes="KOR object_honorific → DEU Akkusativ",
-        ))
-        rs.add(TranslationRule(
-            rule_id="kor_deu_formal_mask",
-            from_lang="kor", to_lang="deu",
-            source_pattern="hasipsioche",
-            target_pattern="maskulinum",
-            transform_kind=TransformKind.GENDER_TO_HONORIFIC,
-            confidence_factor=0.7,
-            notes="KOR hasipsioche → DEU Maskulinum (formal → active)",
-        ))
-        rs.add(TranslationRule(
-            rule_id="kor_deu_polite_fem",
-            from_lang="kor", to_lang="deu",
-            source_pattern="haeyoche",
-            target_pattern="femininum",
-            transform_kind=TransformKind.GENDER_TO_HONORIFIC,
-            confidence_factor=0.7,
-            notes="KOR haeyoche → DEU Femininum (polite → container)",
-        ))
-        rs.add(TranslationRule(
-            rule_id="kor_deu_plain_neut",
-            from_lang="kor", to_lang="deu",
-            source_pattern="haeche",
-            target_pattern="neutrum",
-            transform_kind=TransformKind.GENDER_TO_HONORIFIC,
-            confidence_factor=0.65,
-            notes="KOR haeche → DEU Neutrum (informal → value)",
-        ))
+        # ── ZHO ↔ KOR (classifier ↔ particles) ────────────────────
+        # ZHO classifiers → KOR particles
+        ("zho_kor_person_subj", "zho", "kor", "person", "subject_honorific",
+         TransformKind.TOPIC_MARKING, 0.75,
+         "ZHO person classifier → KOR subject particle (은/는)"),
+        ("zho_kor_animal_subj", "zho", "kor", "animal", "subject_honorific",
+         TransformKind.TOPIC_MARKING, 0.7,
+         "ZHO animal classifier → KOR subject particle"),
+        ("zho_kor_collective_obj", "zho", "kor", "collective", "object_honorific",
+         TransformKind.TOPIC_MARKING, 0.7,
+         "ZHO collective classifier → KOR object particle (을/를)"),
+        ("zho_kor_flat_val", "zho", "kor", "flat_object", "haeche",
+         TransformKind.REGISTER_MAP, 0.6,
+         "ZHO flat object → KOR plain register (value type)"),
+        ("zho_kor_topic", "zho", "kor", "generic", "haeyoche",
+         TransformKind.TOPIC_MARKING, 0.55,
+         "ZHO generic classifier → KOR polite (topic marker 은/는)"),
+        # KOR → ZHO (reverse)
+        ("kor_zho_subj_person", "kor", "zho", "subject_honorific", "person",
+         TransformKind.TOPIC_MARKING, 0.75,
+         "KOR subject particle → ZHO person classifier (位)"),
+        ("kor_zho_obj_collective", "kor", "zho", "object_honorific", "collective",
+         TransformKind.TOPIC_MARKING, 0.7,
+         "KOR object particle → ZHO collective classifier (群)"),
+        ("kor_zho_formal_person", "kor", "zho", "hasipsioche", "person",
+         TransformKind.REGISTER_MAP, 0.7,
+         "KOR formal → ZHO person classifier (respectful)"),
+        ("kor_zho_plain_flat", "kor", "zho", "haeche", "flat_object",
+         TransformKind.REGISTER_MAP, 0.6,
+         "KOR plain → ZHO flat object classifier (張)"),
+    ]
 
     @staticmethod
-    def _add_zho_kor_rules(rs: TranslationRuleSet) -> None:
-        """Add ZHO ↔ KOR translation rules (classifier ↔ particles)."""
-        # ── ZHO → KOR (classifier → particles) ──────────────────
-
-        # ZHO 量词系统 → KOR 助词系统
-        rs.add(TranslationRule(
-            rule_id="zho_kor_person_subj",
-            from_lang="zho", to_lang="kor",
-            source_pattern="person",
-            target_pattern="subject_honorific",
-            transform_kind=TransformKind.TOPIC_MARKING,
-            confidence_factor=0.75,
-            notes="ZHO person classifier → KOR subject particle (은/는)",
-        ))
-        rs.add(TranslationRule(
-            rule_id="zho_kor_animal_subj",
-            from_lang="zho", to_lang="kor",
-            source_pattern="animal",
-            target_pattern="subject_honorific",
-            transform_kind=TransformKind.TOPIC_MARKING,
-            confidence_factor=0.7,
-            notes="ZHO animal classifier → KOR subject particle",
-        ))
-        rs.add(TranslationRule(
-            rule_id="zho_kor_collective_obj",
-            from_lang="zho", to_lang="kor",
-            source_pattern="collective",
-            target_pattern="object_honorific",
-            transform_kind=TransformKind.TOPIC_MARKING,
-            confidence_factor=0.7,
-            notes="ZHO collective classifier → KOR object particle (을/를)",
-        ))
-        rs.add(TranslationRule(
-            rule_id="zho_kor_flat_val",
-            from_lang="zho", to_lang="kor",
-            source_pattern="flat_object",
-            target_pattern="haeche",
-            transform_kind=TransformKind.REGISTER_MAP,
-            confidence_factor=0.6,
-            notes="ZHO flat object → KOR plain register (value type)",
-        ))
-
-        # ZHO topic markers → KOR topic markers
-        rs.add(TranslationRule(
-            rule_id="zho_kor_topic",
-            from_lang="zho", to_lang="kor",
-            source_pattern="generic",
-            target_pattern="haeyoche",
-            transform_kind=TransformKind.TOPIC_MARKING,
-            confidence_factor=0.55,
-            notes="ZHO generic classifier → KOR polite (topic marker 은/는)",
-        ))
-
-        # ── KOR → ZHO (reverse) ──────────────────────────────────
-        rs.add(TranslationRule(
-            rule_id="kor_zho_subj_person",
-            from_lang="kor", to_lang="zho",
-            source_pattern="subject_honorific",
-            target_pattern="person",
-            transform_kind=TransformKind.TOPIC_MARKING,
-            confidence_factor=0.75,
-            notes="KOR subject particle → ZHO person classifier (位)",
-        ))
-        rs.add(TranslationRule(
-            rule_id="kor_zho_obj_collective",
-            from_lang="kor", to_lang="zho",
-            source_pattern="object_honorific",
-            target_pattern="collective",
-            transform_kind=TransformKind.TOPIC_MARKING,
-            confidence_factor=0.7,
-            notes="KOR object particle → ZHO collective classifier (群)",
-        ))
-        rs.add(TranslationRule(
-            rule_id="kor_zho_formal_person",
-            from_lang="kor", to_lang="zho",
-            source_pattern="hasipsioche",
-            target_pattern="person",
-            transform_kind=TransformKind.REGISTER_MAP,
-            confidence_factor=0.7,
-            notes="KOR formal → ZHO person classifier (respectful)",
-        ))
-        rs.add(TranslationRule(
-            rule_id="kor_zho_plain_flat",
-            from_lang="kor", to_lang="zho",
-            source_pattern="haeche",
-            target_pattern="flat_object",
-            transform_kind=TransformKind.REGISTER_MAP,
-            confidence_factor=0.6,
-            notes="KOR plain → ZHO flat object classifier (張)",
-        ))
+    def _add_rules_from_definitions(rs: TranslationRuleSet) -> None:
+        """Load all rules from the declarative _TRANSLATION_RULE_DEFINITIONS table."""
+        for (
+            rule_id, from_lang, to_lang, source_pattern,
+            target_pattern, transform_kind, confidence_factor, notes,
+        ) in TranslationRuleSet._TRANSLATION_RULE_DEFINITIONS:
+            rs.add(TranslationRule(
+                rule_id=rule_id,
+                from_lang=from_lang,
+                to_lang=to_lang,
+                source_pattern=source_pattern,
+                target_pattern=target_pattern,
+                transform_kind=transform_kind,
+                confidence_factor=confidence_factor,
+                notes=notes,
+            ))
 
     @classmethod
     def standard(cls) -> TranslationRuleSet:
@@ -658,10 +438,9 @@ class TranslationRuleSet:
         paradigm construct to a target paradigm construct.
         """
         rs = cls()
-        cls._add_zho_deu_rules(rs)
-        cls._add_deu_kor_rules(rs)
-        cls._add_zho_kor_rules(rs)
+        cls._add_rules_from_definitions(rs)
         return rs
+
 
 
 # ══════════════════════════════════════════════════════════════════
