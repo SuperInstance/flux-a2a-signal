@@ -1,0 +1,76 @@
+{
+  "signal": {
+    "id": "branch-demo-001",
+    "version": "0.1.0",
+    "meta": {
+      "author": "flux-captain",
+      "description": "Demonstrates branching — parallel path exploration with merge"
+    },
+    "body": [
+      {
+        "op": "let",
+        "name": "data",
+        "value": [42, 17, 83, 5, 91, 28, 64]
+      },
+      {
+        "op": "branch",
+        "id": "sort-strategies",
+        "branches": [
+          {
+            "label": "ascending",
+            "weight": 0.5,
+            "body": [
+              {
+                "op": "let",
+                "name": "sorted_asc",
+                "value": { "op": "collect", "items": [5, 17, 28, 42, 64, 83, 91] }
+              },
+              {
+                "op": "tell",
+                "to": "captain",
+                "message": "Ascending sort complete"
+              }
+            ]
+          },
+          {
+            "label": "descending",
+            "weight": 0.3,
+            "body": [
+              {
+                "op": "let",
+                "name": "sorted_desc",
+                "value": { "op": "collect", "items": [91, 83, 64, 42, 28, 17, 5] }
+              },
+              {
+                "op": "tell",
+                "to": "captain",
+                "message": "Descending sort complete"
+              }
+            ]
+          },
+          {
+            "label": "filtered",
+            "weight": 0.2,
+            "body": [
+              {
+                "op": "let",
+                "name": "filtered",
+                "value": { "op": "collect", "items": [42, 83, 91, 64] }
+              },
+              {
+                "op": "tell",
+                "to": "captain",
+                "message": "Filter complete — values > 30"
+              }
+            ]
+          }
+        ],
+        "merge": {
+          "strategy": "weighted_confidence",
+          "timeout_ms": 5000,
+          "fallback": "first_complete"
+        }
+      }
+    ]
+  }
+}

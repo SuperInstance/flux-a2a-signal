@@ -1,0 +1,9 @@
+[project]
+name = "flux-a2a-signal"
+version = "0.1.0"
+description = "FLUX A2A Signal Protocol — agent-first-class JSON language for inter-agent communication"
+requires-python = ">=3.10"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

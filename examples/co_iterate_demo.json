@@ -1,0 +1,71 @@
+{
+  "signal": {
+    "id": "co-iterate-demo-001",
+    "version": "0.1.0",
+    "meta": {
+      "author": "flux-captain",
+      "description": "Demonstrates co-iteration — two agents traversing the same program"
+    },
+    "body": [
+      {
+        "op": "co_iterate",
+        "id": "co-pair-program",
+        "program": {
+          "body": [
+            {
+              "op": "let",
+              "name": "shared_counter",
+              "value": 0
+            },
+            {
+              "op": "let",
+              "name": "shared_data",
+              "value": []
+            },
+            {
+              "op": "loop",
+              "times": 5,
+              "var": "i",
+              "body": [
+                {
+                  "op": "set",
+                  "name": "shared_counter",
+                  "value": { "op": "add", "args": [{ "op": "get", "name": "shared_counter" }, 1] }
+                },
+                {
+                  "op": "tell",
+                  "to": "system",
+                  "message": { "op": "get", "name": "shared_counter" }
+                }
+              ]
+            },
+            {
+              "op": "get",
+              "name": "shared_counter"
+            }
+          ]
+        },
+        "agents": [
+          {
+            "id": "writer",
+            "role": "modifier",
+            "capabilities": ["read", "write", "branch"],
+            "trust": 0.9
+          },
+          {
+            "id": "reviewer",
+            "role": "auditor",
+            "capabilities": ["read", "suggest"],
+            "trust": 0.85
+          }
+        ],
+        "conflict_resolution": {
+          "strategy": "priority",
+          "priority_order": ["writer", "reviewer"],
+          "on_conflict": "notify"
+        },
+        "merge_strategy": "sequential_consensus"
+      }
+    ]
+  }
+}

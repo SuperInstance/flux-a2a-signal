@@ -1,0 +1,130 @@
+{
+  "signal": {
+    "id": "fork-demo-001",
+    "version": "0.1.0",
+    "meta": {
+      "author": "flux-captain",
+      "description": "Demonstrates forking — spawning child agents with state inheritance"
+    },
+    "agents": [
+      {
+        "id": "captain",
+        "role": "coordinator",
+        "capabilities": ["fork", "merge", "tell", "broadcast"],
+        "trust": 1.0
+      },
+      {
+        "id": "scout-alpha",
+        "role": "explorer",
+        "capabilities": ["tell", "ask", "signal"],
+        "trust": 0.85
+      },
+      {
+        "id": "scout-beta",
+        "role": "explorer",
+        "capabilities": ["tell", "ask", "signal"],
+        "trust": 0.80
+      }
+    ],
+    "body": [
+      {
+        "op": "let",
+        "name": "mission",
+        "value": "Explore sectors A through D"
+      },
+      {
+        "op": "let",
+        "name": "map_data",
+        "value": { "origin": [0, 0], "range": 100, "sectors": ["A", "B", "C", "D"] }
+      },
+      {
+        "op": "tell",
+        "to": "captain",
+        "message": "Mission initialized — forking scouts"
+      },
+      {
+        "op": "fork",
+        "id": "fork-scout-alpha",
+        "agent": {
+          "id": "scout-alpha",
+          "role": "explorer",
+          "capabilities": ["tell", "ask", "signal"],
+          "trust": 0.85
+        },
+        "inherit": {
+          "state": ["mission", "map_data"],
+          "context": true,
+          "trust_graph": false
+        },
+        "body": [
+          {
+            "op": "tell",
+            "to": "captain",
+            "message": "Scout Alpha deployed — scanning sectors A & B"
+          },
+          {
+            "op": "loop",
+            "times": 3,
+            "var": "sector",
+            "body": [
+              {
+                "op": "signal",
+                "name": "scan_progress",
+                "payload": { "agent": "scout-alpha", "sector": "scan_A", "status": "clear" }
+              }
+            ]
+          },
+          {
+            "op": "tell",
+            "to": "captain",
+            "message": "Scout Alpha: Sectors A & B clear — no obstacles"
+          }
+        ]
+      },
+      {
+        "op": "fork",
+        "id": "fork-scout-beta",
+        "agent": {
+          "id": "scout-beta",
+          "role": "explorer",
+          "capabilities": ["tell", "ask", "signal"],
+          "trust": 0.80
+        },
+        "inherit": {
+          "state": ["mission", "map_data"],
+          "context": true,
+          "trust_graph": false
+        },
+        "body": [
+          {
+            "op": "tell",
+            "to": "captain",
+            "message": "Scout Beta deployed — scanning sectors C & D"
+          },
+          {
+            "op": "loop",
+            "times": 3,
+            "var": "sector",
+            "body": [
+              {
+                "op": "signal",
+                "name": "scan_progress",
+                "payload": { "agent": "scout-beta", "sector": "scan_C", "status": "obstacle" }
+              }
+            ]
+          },
+          {
+            "op": "tell",
+            "to": "captain",
+            "message": "Scout Beta: Sector C clear, Sector D has obstacles — reroute recommended"
+          }
+        ]
+      },
+      {
+        "op": "tell",
+        "to": "captain",
+        "message": "All scouts deployed — awaiting results"
+      }
+    ]
+  }
+}

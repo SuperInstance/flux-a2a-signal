@@ -1,0 +1,61 @@
+{
+  "signal": {
+    "id": "hello-world-001",
+    "version": "0.1.0",
+    "meta": {
+      "author": "flux-captain",
+      "description": "Multilingual hello world — the same greeting in 6 FLUX languages"
+    },
+    "body": [
+      {
+        "op": "tell",
+        "to": "world",
+        "message": "你好世界 — Hello from flux_zho",
+        "lang": "zho",
+        "confidence": 1.0
+      },
+      {
+        "op": "tell",
+        "to": "world",
+        "message": "Hallo Welt — Hello from flux_deu",
+        "lang": "deu",
+        "confidence": 1.0
+      },
+      {
+        "op": "tell",
+        "to": "world",
+        "message": "안녕하세요 세계 — Hello from flux_kor",
+        "lang": "kor",
+        "confidence": 1.0
+      },
+      {
+        "op": "tell",
+        "to": "world",
+        "message": "नमस्ते विश्व — Hello from flux_san",
+        "lang": "san",
+        "confidence": 1.0
+      },
+      {
+        "op": "tell",
+        "to": "world",
+        "message": "天地玄黃 — Hello from flux_wen",
+        "lang": "wen",
+        "confidence": 1.0
+      },
+      {
+        "op": "tell",
+        "to": "world",
+        "message": "Salve Mundi — Hello from flux_lat",
+        "lang": "lat",
+        "confidence": 1.0
+      },
+      {
+        "op": "tell",
+        "to": "world",
+        "message": "Signal Active — FLUX-A2A is online",
+        "lang": "flux",
+        "confidence": 1.0
+      }
+    ]
+  }
+}

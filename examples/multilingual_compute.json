@@ -1,0 +1,166 @@
+{
+  "signal": {
+    "id": "multilingual-compute-001",
+    "version": "0.1.0",
+    "meta": {
+      "author": "flux-captain",
+      "description": "Same computation expressed in 3 languages, with merged result — demonstrates language fluidity"
+    },
+    "agents": [
+      {
+        "id": "zho-computer",
+        "role": "executor",
+        "capabilities": ["tell", "ask"],
+        "trust": 0.95,
+        "lang": "zho"
+      },
+      {
+        "id": "deu-computer",
+        "role": "executor",
+        "capabilities": ["tell", "ask"],
+        "trust": 0.92,
+        "lang": "deu"
+      },
+      {
+        "id": "kor-computer",
+        "role": "executor",
+        "capabilities": ["tell", "ask"],
+        "trust": 0.90,
+        "lang": "kor"
+      }
+    ],
+    "body": [
+      {
+        "op": "tell",
+        "to": "system",
+        "message": "Starting multilingual computation",
+        "confidence": 1.0
+      },
+      {
+        "op": "branch",
+        "id": "multilingual-calc",
+        "branches": [
+          {
+            "label": "zho-path",
+            "weight": 0.34,
+            "body": [
+              {
+                "op": "let",
+                "name": "甲",
+                "value": 15,
+                "lang": "zho"
+              },
+              {
+                "op": "let",
+                "name": "乙",
+                "value": 27,
+                "lang": "zho"
+              },
+              {
+                "op": "let",
+                "name": "丙",
+                "value": { "op": "mul", "args": [{ "op": "get", "name": "甲" }, { "op": "get", "name": "乙" }] },
+                "lang": "zho"
+              },
+              {
+                "op": "let",
+                "name": "结果",
+                "value": { "op": "add", "args": [{ "op": "get", "name": "丙" }, 100] },
+                "lang": "zho"
+              },
+              {
+                "op": "tell",
+                "to": "system",
+                "message": "中文路径完成",
+                "lang": "zho"
+              }
+            ]
+          },
+          {
+            "label": "deu-path",
+            "weight": 0.33,
+            "body": [
+              {
+                "op": "let",
+                "name": "erste",
+                "value": 15,
+                "lang": "deu"
+              },
+              {
+                "op": "let",
+                "name": "zweite",
+                "value": 27,
+                "lang": "deu"
+              },
+              {
+                "op": "let",
+                "name": "produkt",
+                "value": { "op": "mul", "args": [{ "op": "get", "name": "erste" }, { "op": "get", "name": "zweite" }] },
+                "lang": "deu"
+              },
+              {
+                "op": "let",
+                "name": "ergebnis",
+                "value": { "op": "add", "args": [{ "op": "get", "name": "produkt" }, 100] },
+                "lang": "deu"
+              },
+              {
+                "op": "tell",
+                "to": "system",
+                "message": "Deutscher Pfad abgeschlossen",
+                "lang": "deu"
+              }
+            ]
+          },
+          {
+            "label": "kor-path",
+            "weight": 0.33,
+            "body": [
+              {
+                "op": "let",
+                "name": "첫째",
+                "value": 15,
+                "lang": "kor"
+              },
+              {
+                "op": "let",
+                "name": "둘째",
+                "value": 27,
+                "lang": "kor"
+              },
+              {
+                "op": "let",
+                "name": "곱셈",
+                "value": { "op": "mul", "args": [{ "op": "get", "name": "첫째" }, { "op": "get", "name": "둘째" }] },
+                "lang": "kor"
+              },
+              {
+                "op": "let",
+                "name": "결과",
+                "value": { "op": "add", "args": [{ "op": "get", "name": "곱셈" }, 100] },
+                "lang": "kor"
+              },
+              {
+                "op": "tell",
+                "to": "system",
+                "message": "한국어 경로 완료",
+                "lang": "kor"
+              }
+            ]
+          }
+        ],
+        "merge": {
+          "strategy": "consensus",
+          "timeout_ms": 10000,
+          "fallback": "best_confidence"
+        }
+      },
+      {
+        "op": "tell",
+        "to": "system",
+        "message": "All three language paths computed — same result via different grammars",
+        "confidence": 1.0
+      }
+    ]
+  }
+}
