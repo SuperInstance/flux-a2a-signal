@@ -273,20 +273,27 @@ class Compiler:
             getattr(self, method_name)(expr, chunk)
             return
 
-        # Special / fallback ops
+        self._compile_fallback_op(expr, chunk)
+
+    def _compile_fallback_op(self, expr: Any, chunk: BytecodeChunk) -> None:
+        """Compile fallback / special-case operations not in the dispatch table."""
         if expr.op == "literal":
             chunk.emit_push(expr.get("value"), source="literal")
         elif expr.op == "yield":
             pass  # Yield is a no-op in compiled mode
         elif expr.op == "eval":
-            inner = expr.get("expr", {})
-            if isinstance(inner, dict) and "op" in inner:
-                self._compile_expr(inner, chunk)
-            else:
-                chunk.emit_push(inner, source="eval")
+            self._compile_eval_op(expr, chunk)
         else:
             # Unknown — emit as NOP for forward compatibility
             chunk.emit(BcOp.NOP.value, f"unknown:{expr.op}", source=f"unknown_op:{expr.op}")
+
+    def _compile_eval_op(self, expr: Any, chunk: BytecodeChunk) -> None:
+        """Compile an eval expression — inline compile or push as literal."""
+        inner = expr.get("expr", {})
+        if isinstance(inner, dict) and "op" in inner:
+            self._compile_expr(inner, chunk)
+        else:
+            chunk.emit_push(inner, source="eval")
 
     def _emit_lang_and_confidence(self, expr: Any, chunk: BytecodeChunk) -> None:
         """Emit language tag and confidence metadata if applicable."""
@@ -401,42 +408,63 @@ class Compiler:
         end_label = self._next_label("loop_end")
         var_name = expr.get("var", "item")
         body = expr.get("body", [])
-
-        # Loop over collection or count
         collection = expr.get("over", None)
         times = expr.get("times", expr.get("count", None))
 
         if collection is not None:
-            self._compile_value(collection, chunk)
-            chunk.emit(BcOp.LOAD.value, f"_iter:{var_name}", source="loop:init_iter")
-            chunk.emit_label(loop_label)
-            # Check if iterator exhausted
-            chunk.emit(BcOp.JUMP_IF_NOT.value, end_label, source="loop:check")
-            chunk.emit(BcOp.LOAD.value, var_name, source=f"loop:load_{var_name}")
-            self._compile_body(body, chunk)
-            chunk.emit(BcOp.JUMP.value, loop_label, source="loop:next")
+            self._compile_collection_loop(chunk, loop_label, end_label, var_name, body, collection)
         else:
-            count = int(times) if times is not None else 0
-            chunk.emit_push(0, source="loop:counter_init")
-            chunk.emit(BcOp.STORE.value, f"_loop_counter", source="loop:store_counter")
-            chunk.emit_label(loop_label)
-            # Check counter
-            chunk.emit(BcOp.LOAD.value, f"_loop_counter", source="loop:load_counter")
-            chunk.emit_push(count, source="loop:limit")
-            chunk.emit(BcOp.LT.value, source="loop:check")
-            chunk.emit(BcOp.JUMP_IF_NOT.value, end_label, source="loop:end_check")
-            # Load counter as var
-            chunk.emit(BcOp.LOAD.value, f"_loop_counter", source=f"loop:load_{var_name}")
-            chunk.emit(BcOp.STORE.value, var_name, source=f"loop:store_{var_name}")
-            self._compile_body(body, chunk)
-            # Increment counter
-            chunk.emit(BcOp.LOAD.value, f"_loop_counter", source="loop:inc_load")
-            chunk.emit_push(1, source="loop:inc_one")
-            chunk.emit(BcOp.ADD.value, source="loop:inc")
-            chunk.emit(BcOp.STORE.value, f"_loop_counter", source="loop:inc_store")
-            chunk.emit(BcOp.JUMP.value, loop_label, source="loop:continue")
+            self._compile_count_loop(chunk, loop_label, end_label, var_name, body, times)
 
         chunk.emit_label(end_label)
+
+    def _compile_collection_loop(
+        self,
+        chunk: BytecodeChunk,
+        loop_label: str,
+        end_label: str,
+        var_name: str,
+        body: list[Any],
+        collection: Any,
+    ) -> None:
+        """Compile a loop that iterates over a collection."""
+        self._compile_value(collection, chunk)
+        chunk.emit(BcOp.LOAD.value, f"_iter:{var_name}", source="loop:init_iter")
+        chunk.emit_label(loop_label)
+        chunk.emit(BcOp.JUMP_IF_NOT.value, end_label, source="loop:check")
+        chunk.emit(BcOp.LOAD.value, var_name, source=f"loop:load_{var_name}")
+        self._compile_body(body, chunk)
+        chunk.emit(BcOp.JUMP.value, loop_label, source="loop:next")
+
+    def _compile_count_loop(
+        self,
+        chunk: BytecodeChunk,
+        loop_label: str,
+        end_label: str,
+        var_name: str,
+        body: list[Any],
+        times: Any,
+    ) -> None:
+        """Compile a counted loop (iterate N times)."""
+        count = int(times) if times is not None else 0
+        chunk.emit_push(0, source="loop:counter_init")
+        chunk.emit(BcOp.STORE.value, f"_loop_counter", source="loop:store_counter")
+        chunk.emit_label(loop_label)
+        # Check counter
+        chunk.emit(BcOp.LOAD.value, f"_loop_counter", source="loop:load_counter")
+        chunk.emit_push(count, source="loop:limit")
+        chunk.emit(BcOp.LT.value, source="loop:check")
+        chunk.emit(BcOp.JUMP_IF_NOT.value, end_label, source="loop:end_check")
+        # Load counter as var
+        chunk.emit(BcOp.LOAD.value, f"_loop_counter", source=f"loop:load_{var_name}")
+        chunk.emit(BcOp.STORE.value, var_name, source=f"loop:store_{var_name}")
+        self._compile_body(body, chunk)
+        # Increment counter
+        chunk.emit(BcOp.LOAD.value, f"_loop_counter", source="loop:inc_load")
+        chunk.emit_push(1, source="loop:inc_one")
+        chunk.emit(BcOp.ADD.value, source="loop:inc")
+        chunk.emit(BcOp.STORE.value, f"_loop_counter", source="loop:inc_store")
+        chunk.emit(BcOp.JUMP.value, loop_label, source="loop:continue")
 
     def _compile_while(self, expr: Any, chunk: BytecodeChunk) -> None:
         cond_label = self._next_label("while")
@@ -727,33 +755,42 @@ class Optimizer:
 
         i = 0
         while i < len(chunk.instructions) - 2:
-            instr_a = chunk.instructions[i]
-            instr_b = chunk.instructions[i + 1]
-            instr_op = chunk.instructions[i + 2]
-
-            if (
-                instr_a[0] == BcOp.PUSH.value
-                and instr_b[0] == BcOp.PUSH.value
-                and instr_op[0] in arith_ops
-            ):
-                try:
-                    a_val = chunk.constants[int(instr_a[1])]
-                    b_val = chunk.constants[int(instr_b[1])]
-                    if isinstance(a_val, (int, float)) and isinstance(b_val, (int, float)):
-                        result = op_funcs[instr_op[0]](a_val, b_val)
-                        if instr_op[0] == BcOp.DIV.value and b_val == 0:
-                            i += 1
-                            continue
-                        if result not in chunk.constants:
-                            chunk.constants.append(result)
-                        const_idx = chunk.constants.index(result)
-                        chunk.instructions[i] = [BcOp.PUSH.value, const_idx]
-                        chunk.instructions.pop(i + 1)
-                        chunk.instructions.pop(i + 1)
-                        continue
-                except (IndexError, TypeError, ZeroDivisionError):
-                    pass
+            if self._try_fold_constants(chunk, i, arith_ops, op_funcs):
+                continue
             i += 1
+
+    def _try_fold_constants(
+        self,
+        chunk: BytecodeChunk,
+        i: int,
+        arith_ops: set,
+        op_funcs: dict,
+    ) -> bool:
+        """Try to fold a constant arithmetic pattern at position *i*. Returns True if folded."""
+        instr_a, instr_b, instr_op = chunk.instructions[i], chunk.instructions[i + 1], chunk.instructions[i + 2]
+        if not (
+            instr_a[0] == BcOp.PUSH.value
+            and instr_b[0] == BcOp.PUSH.value
+            and instr_op[0] in arith_ops
+        ):
+            return False
+        try:
+            a_val = chunk.constants[int(instr_a[1])]
+            b_val = chunk.constants[int(instr_b[1])]
+            if not (isinstance(a_val, (int, float)) and isinstance(b_val, (int, float))):
+                return False
+            if instr_op[0] == BcOp.DIV.value and b_val == 0:
+                return False
+            result = op_funcs[instr_op[0]](a_val, b_val)
+            if result not in chunk.constants:
+                chunk.constants.append(result)
+            const_idx = chunk.constants.index(result)
+            chunk.instructions[i] = [BcOp.PUSH.value, const_idx]
+            chunk.instructions.pop(i + 1)
+            chunk.instructions.pop(i + 1)
+            return True
+        except (IndexError, TypeError, ZeroDivisionError):
+            return False
 
 
 # ---------------------------------------------------------------------------

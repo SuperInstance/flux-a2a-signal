@@ -246,10 +246,9 @@ class OpcodeInfo:
 _OPCODE_INFO: Dict[FluxOpcode, OpcodeInfo] = {}
 
 
-def _build_info_table() -> None:
-    """Build the complete opcode metadata table."""
-    table = {
-        # (opcode, category, operands, description, first_version, required_features)
+def _base_isa_entries() -> list[tuple]:
+    """Return opcode entries for Core, Arithmetic, Bitwise, Comparison."""
+    return [
         # ── Core ──
         (FluxOpcode.NOP,           OpcodeCategory.CORE,      0, "No operation",                                         1, ()),
         (FluxOpcode.MOV,           OpcodeCategory.CORE,      2, "Copy register to register",                              1, ()),
@@ -264,10 +263,10 @@ def _build_info_table() -> None:
         (FluxOpcode.ISUB,          OpcodeCategory.ARITHMETIC, 3, "Integer subtract",                                     1, ()),
         (FluxOpcode.IMUL,          OpcodeCategory.ARITHMETIC, 3, "Integer multiply",                                    1, ()),
         (FluxOpcode.IDIV,          OpcodeCategory.ARITHMETIC, 3, "Integer divide",                                      1, ()),
-        (FluxOpcode.IMOD,          Opcode.ARITHMETIC, 3, "Integer modulo",                                      1, ()),
+        (FluxOpcode.IMOD,          OpcodeCategory.ARITHMETIC, 3, "Integer modulo",                                      1, ()),
         (FluxOpcode.INEG,          OpcodeCategory.ARITHMETIC, 1, "Integer negate",                                     1, ()),
         (FluxOpcode.INC,           OpcodeCategory.ARITHMETIC, 1, "Increment by one",                                    1, ()),
-        (FluxOpcode.DEC,           Opcode.ARITHMETIC, 1, "Decrement by one",                                    1, ()),
+        (FluxOpcode.DEC,           OpcodeCategory.ARITHMETIC, 1, "Decrement by one",                                    1, ()),
         # ── Bitwise ──
         (FluxOpcode.IAND,          OpcodeCategory.BITWISE,    3, "Bitwise AND",                                        1, ()),
         (FluxOpcode.IOR,           OpcodeCategory.BITWISE,    3, "Bitwise OR",                                         1, ()),
@@ -286,6 +285,12 @@ def _build_info_table() -> None:
         (FluxOpcode.IGE,           OpcodeCategory.COMPARISON,  3, "Is greater or equal",                                1, ()),
         (FluxOpcode.TEST,          OpcodeCategory.COMPARISON,  1, "Test register value",                                 1, ()),
         (FluxOpcode.SETCC,         OpcodeCategory.COMPARISON,  1, "Set condition code",                                    1, ()),
+    ]
+
+
+def _stack_func_mem_entries() -> list[tuple]:
+    """Return opcode entries for Stack, Function, Memory."""
+    return [
         # ── Stack ──
         (FluxOpcode.PUSH,          OpcodeCategory.STACK,      1, "Push onto stack",                                     1, ()),
         (FluxOpcode.POP,           OpcodeCategory.STACK,      1, "Pop from stack",                                      1, ()),
@@ -313,6 +318,12 @@ def _build_info_table() -> None:
         (FluxOpcode.MEMCMP,        OpcodeCategory.MEMORY,    3, "Compare memory blocks",                              1, ()),
         (FluxOpcode.JL,            OpcodeCategory.MEMORY,    2, "Jump if less than (flag-based)",                    1, ()),
         (FluxOpcode.JGE,           OpcodeCategory.MEMORY,    2, "Jump if greater-or-equal (flag-based)",            1, ()),
+    ]
+
+
+def _type_float_string_entries() -> list[tuple]:
+    """Return opcode entries for Type, Float, Float CMP, String."""
+    return [
         # ── Type ──
         (FluxOpcode.CAST,          OpcodeCategory.TYPE,       2, "Cast to different type",                              1, ()),
         (FluxOpcode.BOX,           OpcodeCategory.TYPE,       1, "Box value into dynamic container",                     1, ()),
@@ -340,6 +351,12 @@ def _build_info_table() -> None:
         (FluxOpcode.SCHAR,         OpcodeCategory.STRING,    2, "Character access",                                    1, ()),
         (FluxOpcode.SSUB,          OpcodeCategory.STRING,    3, "Substring",                                          1, ()),
         (FluxOpcode.SCMP,          OpcodeCategory.STRING,    2, "String compare",                                      1, ()),
+    ]
+
+
+def _a2a_and_paradigm_entries() -> list[tuple]:
+    """Return opcode entries for A2A, A2A extended, Paradigm, System."""
+    return [
         # ── A2A existing ──
         (FluxOpcode.TELL,          OpcodeCategory.A2A,        2, "Send one-way message to agent",                         2, ("a2a",)),
         (FluxOpcode.ASK,           OpcodeCategory.A2A,        2, "Question/request to agent",                            2, ("a2a",)),
@@ -382,9 +399,18 @@ def _build_info_table() -> None:
         # ── System ──
         (FluxOpcode.PRINT,         OpcodeCategory.SYSTEM,    1, "Print register value",                                 1, ()),
         (FluxOpcode.HALT,          OpcodeCategory.SYSTEM,    0, "Halt execution",                                    1, ()),
-    }
+    ]
 
-    for op, cat, n_ops, desc, ver, feats in table:
+
+def _build_info_table() -> None:
+    """Build the complete opcode metadata table."""
+    entries = (
+        _base_isa_entries()
+        + _stack_func_mem_entries()
+        + _type_float_string_entries()
+        + _a2a_and_paradigm_entries()
+    )
+    for op, cat, n_ops, desc, ver, feats in entries:
         _OPCODE_INFO[op] = OpcodeInfo(
             name=op.name,
             hex_value=int(op),

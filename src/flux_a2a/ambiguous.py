@@ -641,27 +641,46 @@ class SimpleBackend(ExecutionBackend):
         error = ""
 
         try:
-            for instr in bytecode:
-                cycles += 1
-                if cycles > self.max_cycles:
-                    error = "Max cycles exceeded"
-                    break
-
-                result = self._dispatch_instruction(instr, registers, output)
-                if result == "__halt__":
-                    break
-                if result:
-                    error = result
-                    break
-
+            cycles, error = self._run_instruction_loop(bytecode, registers, output, cycles)
         except (IndexError, TypeError, ValueError) as e:
             error = str(e)
 
+        return self._build_backend_result(registers, output, error, cycles)
+
+    def _run_instruction_loop(
+        self,
+        bytecode: list[Any],
+        registers: list,
+        output: list[str],
+        cycles: int,
+    ) -> tuple[int, str]:
+        """Run bytecode instructions until halt, error, or max cycles.
+
+        Returns (cycles, error) where error is '' on clean halt.
+        """
+        for instr in bytecode:
+            cycles += 1
+            if cycles > self.max_cycles:
+                return cycles, "Max cycles exceeded"
+            result = self._dispatch_instruction(instr, registers, output)
+            if result == "__halt__":
+                return cycles, ""
+            if result:
+                return cycles, result
+        return cycles, ""
+
+    def _build_backend_result(
+        self,
+        registers: list,
+        output: list[str],
+        error: str,
+        cycles: int,
+    ) -> ExecutionResult:
+        """Build the final ExecutionResult from register/output state."""
         success = len(error) == 0
         value = registers[0] if success else None
         if output:
             value = output[-1] if not isinstance(value, int) else value
-
         return ExecutionResult(
             label="",
             success=success,
@@ -793,25 +812,27 @@ class BranchingExecutor:
         if parse.is_unambiguous:
             return self._execute_unambiguous(parse)
 
-        # Execute all interpretations
         all_results = self._execute_all(parse.interpretations)
-
-        # Feed results into confidence propagation
         propagation = ConfidencePropagation(parse)
         self._propagate_execution_results(parse, all_results, propagation)
         propagation.next_round()
 
-        # Determine winner
+        winner = self._determine_winner(parse, propagation)
+        winner_result = self._find_winner_result(all_results, winner)
+        return self._build_branching_result(parse, winner, winner_result, all_results, propagation)
+
+    def _determine_winner(
+        self,
+        parse: AmbiguousParse,
+        propagation: ConfidencePropagation,
+    ) -> Optional[Interpretation]:
+        """Determine the winning interpretation from propagation results."""
         winner = propagation.winner()
         if winner is None:
             winner = parse.best_interpretation()
-
         if not parse.is_resolved and winner:
             parse.mark_resolved(winner.label, method="converged")
-
-        winner_result = self._find_winner_result(all_results, winner)
-
-        return self._build_branching_result(parse, winner, winner_result, all_results, propagation)
+        return winner
 
     def _execute_unambiguous(self, parse: AmbiguousParse) -> BranchingResult:
         """Handle the unambiguous (single interpretation) fast path."""

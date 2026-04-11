@@ -282,6 +282,23 @@ class FormatBridge:
 
     # ── Signal → Bytecode Compilation ────────────────────────────────────
 
+    def _compile_signal_dispatch(self, signal: dict[str, Any]) -> None:
+        """Dispatch signal op to the appropriate compiler method."""
+        op = signal.get("op", "").lower()
+        dispatch = {
+            SignalOp.TELL.value: self._compile_tell,
+            SignalOp.ASK.value: self._compile_ask,
+            SignalOp.BRANCH.value: self._compile_branch,
+            SignalOp.FORK.value: self._compile_fork,
+            SignalOp.CO_ITERATE.value: self._compile_co_iterate,
+            SignalOp.DISCUSS.value: self._compile_discuss,
+        }
+        handler = dispatch.get(op)
+        if handler is None:
+            raise ValueError(f"Unknown signal op: '{op}'. "
+                             f"Expected one of: {[s.value for s in SignalOp]}")
+        handler(signal)
+
     def compile_signal_to_bytecode(self, signal: dict[str, Any]) -> bytes:
         """Compile an A2A Signal JSON primitive to FORMAT bytecode.
 
@@ -298,23 +315,7 @@ class FormatBridge:
             ValueError: If the signal is malformed or uses an unknown op.
         """
         self._instructions = []
-        op = signal.get("op", "").lower()
-
-        if op == SignalOp.TELL.value:
-            self._compile_tell(signal)
-        elif op == SignalOp.ASK.value:
-            self._compile_ask(signal)
-        elif op == SignalOp.BRANCH.value:
-            self._compile_branch(signal)
-        elif op == SignalOp.FORK.value:
-            self._compile_fork(signal)
-        elif op == SignalOp.CO_ITERATE.value:
-            self._compile_co_iterate(signal)
-        elif op == SignalOp.DISCUSS.value:
-            self._compile_discuss(signal)
-        else:
-            raise ValueError(f"Unknown signal op: '{op}'. "
-                             f"Expected one of: {[s.value for s in SignalOp]}")
+        self._compile_signal_dispatch(signal)
 
         # Emit confidence if present
         confidence = signal.get("confidence")
@@ -468,6 +469,25 @@ class FormatBridge:
             comment=f"CONF_ADD {value:.3f}"
         ))
 
+    def _emit_confidence_weights(self, weights: list[float]) -> None:
+        """Emit CONF_MERGE weight instructions for each source weight."""
+        for w in weights:
+            scaled = int(max(0.0, min(1.0, w)) * 254)
+            self._instructions.append(CompiledInstruction(
+                opcode=UNIFIED_OPCODES["CONF_MERGE"],
+                operands=[scaled],
+                comment=f"  weight={w:.3f}"
+            ))
+
+    def _emit_confidence_threshold(self, threshold: float) -> None:
+        """Emit CONF_THRESHOLD instruction for a threshold value."""
+        thr_scaled = int(max(0.0, min(1.0, threshold)) * 254)
+        self._instructions.append(CompiledInstruction(
+            opcode=UNIFIED_OPCODES["CONF_THRESHOLD"],
+            operands=[thr_scaled],
+            comment=f"CONF_THRESHOLD {threshold:.3f}"
+        ))
+
     def compile_confidence_merge(self, weights: list[float], threshold: float = 0.5) -> bytes:
         """Compile confidence merge operations.
 
@@ -490,22 +510,8 @@ class FormatBridge:
             comment=f"CONF_MERGE {len(weights)} sources"
         ))
 
-        # Each weight as u8 (scaled to 0-254)
-        for w in weights:
-            scaled = int(max(0.0, min(1.0, w)) * 254)
-            self._instructions.append(CompiledInstruction(
-                opcode=UNIFIED_OPCODES["CONF_MERGE"],
-                operands=[scaled],
-                comment=f"  weight={w:.3f}"
-            ))
-
-        # CONF_THRESHOLD
-        thr_scaled = int(max(0.0, min(1.0, threshold)) * 254)
-        self._instructions.append(CompiledInstruction(
-            opcode=UNIFIED_OPCODES["CONF_THRESHOLD"],
-            operands=[thr_scaled],
-            comment=f"CONF_THRESHOLD {threshold:.3f}"
-        ))
+        self._emit_confidence_weights(weights)
+        self._emit_confidence_threshold(threshold)
 
         return self._assemble()
 
@@ -541,19 +547,14 @@ class FormatBridge:
 
     # ── Bytecode → Signal Decompilation ─────────────────────────────────
 
-    def decompile_bytecode_to_signal(self, bytecode: bytes) -> dict[str, Any]:
-        """Decompile FORMAT bytecode back to an A2A Signal dict.
-
-        Handles both unified (with FLUX header) and legacy (old A2A) bytecodes.
-
-        Args:
-            bytecode: Raw bytecode bytes.
+    def _resolve_bytecode_opcode(self, bytecode: bytes) -> tuple[int, int, bool]:
+        """Parse bytecode header and resolve the first opcode.
 
         Returns:
-            A dict representing the A2A Signal primitive.
+            Tuple of (resolved_opcode, data_offset, is_unified).
 
         Raises:
-            ValueError: If bytecode is too short or contains unknown opcodes.
+            ValueError: If bytecode is too short or has no instructions.
         """
         if len(bytecode) < HEADER_SIZE and self.emit_header:
             raise ValueError("Bytecode too short")
@@ -569,6 +570,23 @@ class FormatBridge:
         if not is_unified and opcode in A2A_OLD_TO_NEW:
             opcode = A2A_OLD_TO_NEW[opcode][0]
 
+        return opcode, offset, is_unified
+
+    def decompile_bytecode_to_signal(self, bytecode: bytes) -> dict[str, Any]:
+        """Decompile FORMAT bytecode back to an A2A Signal dict.
+
+        Handles both unified (with FLUX header) and legacy (old A2A) bytecodes.
+
+        Args:
+            bytecode: Raw bytecode bytes.
+
+        Returns:
+            A dict representing the A2A Signal primitive.
+
+        Raises:
+            ValueError: If bytecode is too short or contains unknown opcodes.
+        """
+        opcode, offset, is_unified = self._resolve_bytecode_opcode(bytecode)
         return self._decompile_by_opcode(opcode, bytecode, offset, is_unified)
 
     @staticmethod

@@ -668,11 +668,9 @@ class TypeBridge:
                 or self._bridge_to_hub_base_type(source)
                 or self._bridge_to_hub_fallback(source))
 
-    def _bridge_from_hub(
-        self, hub_type: FluxType, target_lang: str
-    ) -> BridgeResult:
-        """Bridge from hub paradigm to target paradigm."""
-        # Try reverse mapping
+    def _bridge_from_hub_reverse_map(self, hub_type: FluxType,
+                                        target_lang: str) -> Optional[BridgeResult]:
+        """Try reverse mapping from hub constraints to target paradigm."""
         for c in hub_type.constraints:
             key = (c.language, c.value)
             # Search reverse mappings
@@ -689,8 +687,11 @@ class TypeBridge:
                             fidelity=0.95,
                             cost=0.05,
                         )
+        return None
 
-        # Fall back to base type
+    def _bridge_from_hub_by_base_type(self, hub_type: FluxType,
+                                       target_lang: str) -> Optional[BridgeResult]:
+        """Fall back to base type mapping for hub-to-target bridge."""
         target_tags = _PARADIGM_TO_BASE.get(target_lang, {})
         for tag, base in target_tags.items():
             if base == hub_type.base_type:
@@ -705,8 +706,11 @@ class TypeBridge:
                     cost=0.15,
                     warnings=["No direct reverse mapping; used base type"],
                 )
+        return None
 
-        # Last resort
+    def _bridge_from_hub_fallback(self, hub_type: FluxType,
+                                   target_lang: str) -> BridgeResult:
+        """Last-resort hub-to-target bridge via constraint stripping."""
         target_type = FluxType(
             base_type=hub_type.base_type,
             confidence=hub_type.confidence * 0.7,
@@ -720,6 +724,23 @@ class TypeBridge:
             cost=0.25,
             warnings=["No match in target; stripped constraints"],
         )
+
+    def _bridge_from_hub(
+        self, hub_type: FluxType, target_lang: str
+    ) -> BridgeResult:
+        """Bridge from hub paradigm to target paradigm."""
+        # Try reverse mapping
+        result = self._bridge_from_hub_reverse_map(hub_type, target_lang)
+        if result:
+            return result
+
+        # Fall back to base type
+        result = self._bridge_from_hub_by_base_type(hub_type, target_lang)
+        if result:
+            return result
+
+        # Last resort
+        return self._bridge_from_hub_fallback(hub_type, target_lang)
 
     def _bridge_preserve(
         self, source: FluxType, target_lang: str
@@ -800,10 +821,10 @@ class TypeBridge:
             warnings=warnings,
         )
 
-    def _bridge_quantum_defer(
+    def _gather_quantum_candidates(
         self, source: FluxType, target_lang: str
-    ) -> BridgeResult:
-        """Bridge by creating a superposition of possible target types."""
+    ) -> List[Tuple[FluxBaseType, float]]:
+        """Gather candidate base types from target paradigm tags."""
         target_tags = _PARADIGM_TO_BASE.get(target_lang, {})
 
         # Gather all base types that match the source
@@ -824,12 +845,24 @@ class TypeBridge:
             # Fallback: add base type with low confidence
             candidates = [(source.base_type, 0.3)]
 
-        # Deduplicate by base type, keeping highest amplitude
+        return candidates
+
+    def _deduplicate_candidates(
+        self, candidates: List[Tuple[FluxBaseType, float]]
+    ) -> List[Tuple[FluxBaseType, float]]:
+        """Deduplicate candidates by base type, keeping highest amplitude."""
         seen: Dict[FluxBaseType, float] = {}
         for bt, amp in candidates:
             if bt not in seen or amp > seen[bt]:
                 seen[bt] = amp
-        candidates = [(bt, amp) for bt, amp in seen.items()]
+        return [(bt, amp) for bt, amp in seen.items()]
+
+    def _bridge_quantum_defer(
+        self, source: FluxType, target_lang: str
+    ) -> BridgeResult:
+        """Bridge by creating a superposition of possible target types."""
+        candidates = self._gather_quantum_candidates(source, target_lang)
+        candidates = self._deduplicate_candidates(candidates)
 
         target = FluxType.uncertain(
             possibilities=candidates,

@@ -194,12 +194,14 @@ class BranchManager:
             return Result(value=None, confidence=0.0, source="merge", error="No results")
 
         merged = self._apply_strategy(bp.merge_policy.strategy, results, bp)
+        self._finalize_branch_point(bp)
+        return merged
 
+    def _finalize_branch_point(self, bp: BranchPoint) -> None:
+        """Mark a branch point as completed with a timestamp."""
         bp.status = "completed"
         from datetime import datetime, timezone
         bp.completed_at = datetime.now(timezone.utc).isoformat()
-
-        return merged
 
     def _record_branch_results(
         self,
@@ -220,7 +222,11 @@ class BranchManager:
         bp: BranchPoint,
     ) -> Result:
         """Apply a merge strategy to a list of branch results."""
-        _dispatch = {
+        return self._resolve_strategy_handler(strategy)(results)
+
+    def _resolve_strategy_handler(self, strategy: str):
+        """Look up the merge strategy handler for the given strategy name."""
+        handlers = {
             MergePolicyType.LAST_WRITER_WINS.value: self._strategy_last_writer,
             MergePolicyType.FIRST_COMPLETE.value: self._strategy_first_complete,
             MergePolicyType.BEST_CONFIDENCE.value: self._strategy_best_confidence,
@@ -228,8 +234,7 @@ class BranchManager:
             MergePolicyType.WEIGHTED_CONFIDENCE.value: self._strategy_weighted_confidence,
             MergePolicyType.VOTE.value: self._strategy_vote,
         }
-        handler = _dispatch.get(strategy, self._strategy_last_writer)
-        return handler(results)
+        return handlers.get(strategy, self._strategy_last_writer)
 
     # -- Strategy implementations ------------------------------------------
 

@@ -183,6 +183,11 @@ class PartialEvaluator:
     # Public API
     # ------------------------------------------------------------------
 
+    def _init_evaluation(self, knowledge: Optional[StaticKnowledge]) -> None:
+        """Reset state and configure knowledge for a new evaluation."""
+        self._reset_state()
+        self._knowledge = knowledge or StaticKnowledge()
+
     def evaluate(self, program: Any, knowledge: Optional[StaticKnowledge] = None) -> PEResult:
         """Partially evaluate a program with respect to known inputs.
 
@@ -200,10 +205,20 @@ class PartialEvaluator:
         -------
         PEResult with the residual program and optimization statistics.
         """
-        self._reset_state()
-        self._knowledge = knowledge or StaticKnowledge()
+        self._init_evaluation(knowledge)
         residual = self._evaluate_program(program)
         return self._build_pe_result(residual)
+
+    def _analyze_program_ops(self, program: Any) -> tuple[set[str], set[str]]:
+        """Collect ops used by a program and determine which can be eliminated.
+
+        Returns:
+            Tuple of (ops_used, eliminated_ops).
+        """
+        ops_used: set[str] = set()
+        self._collect_ops(program, ops_used)
+        all_ops = self._get_all_known_ops()
+        return ops_used, all_ops - ops_used
 
     def project_2(self, interpreter_source: Any, program: Any) -> PEResult:
         """
@@ -221,10 +236,7 @@ class PartialEvaluator:
         are needed for a given program.
         """
         self._reset_state()
-        ops_used: set[str] = set()
-        self._collect_ops(program, ops_used)
-        all_ops = self._get_all_known_ops()
-        eliminated_ops = all_ops - ops_used
+        ops_used, eliminated_ops = self._analyze_program_ops(program)
         self._record_eliminations(eliminated_ops, ops_used)
         return self._build_projection_result(ops_used, eliminated_ops)
 
@@ -344,6 +356,21 @@ class PartialEvaluator:
         "nl": "_pe_nl_resolution",
     }
 
+    def _pe_dynamic_dispatch(self, op: str, expr: dict[str, Any]) -> Any:
+        """Attempt dynamic dispatch to arithmetic, comparison, or logic handlers.
+
+        Returns the handler result, or marks as residual if no handler matches.
+        """
+        if op in self._ARITH_OPS:
+            return self._pe_arithmetic(op, expr)
+        if op in self._CMP_OPS:
+            return self._pe_comparison(op, expr)
+        if op in ("and", "or", "not"):
+            return self._pe_logic(op, expr)
+
+        self._residuals += 1
+        return expr
+
     def _pe_expr(self, expr: dict[str, Any]) -> Any:
         """Partially evaluate a single expression.
 
@@ -366,16 +393,7 @@ class PartialEvaluator:
             return getattr(self, handler_name)(expr)
 
         # --- Dynamic dispatch by category ---
-        if op in self._ARITH_OPS:
-            return self._pe_arithmetic(op, expr)
-        if op in self._CMP_OPS:
-            return self._pe_comparison(op, expr)
-        if op in ("and", "or", "not"):
-            return self._pe_logic(op, expr)
-
-        # --- Default: mark as residual ---
-        self._residuals += 1
-        return expr
+        return self._pe_dynamic_dispatch(op, expr)
 
     def _pe_let(self, expr: dict[str, Any]) -> dict[str, Any]:
         """Partial evaluation of let binding."""

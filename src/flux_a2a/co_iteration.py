@@ -545,29 +545,41 @@ class CoIterationEngine:
 
         while step < max_steps:
             step += 1
-            active_agents = [
-                cid for cid, cursor in cursors.items()
-                if cursor.position < shared.length and not cursor.blocked
-            ]
-            if not active_agents:
+            if not self._execute_step(step, cursors, shared, interpreters):
                 break
-
-            conflicts = shared.detect_conflicts()
-            self._resolve_step_conflicts(conflicts, cursors, shared)
-            agent_results = self._evaluate_active_agents(
-                active_agents, cursors, shared, interpreters,
-            )
-
-            if agent_results:
-                agreed, agreement_level, _ = self.consensus_model.check_agreement(agent_results)
-                self._log_step(step, active_agents, cursors, agreed, agreement_level, conflicts)
-
-            for agent_id in active_agents:
-                cursors[agent_id].advance(1)
 
         return self._build_final_result(cursors, step, shared)
 
     # -- Private helpers for execute ----------------------------------------
+
+    def _execute_step(
+        self,
+        step: int,
+        cursors: dict[str, AgentCursor],
+        shared: SharedProgram,
+        interpreters: dict,
+    ) -> bool:
+        """Execute one co-iteration step. Returns False when no agents are active."""
+        active_agents = [
+            cid for cid, cursor in cursors.items()
+            if cursor.position < shared.length and not cursor.blocked
+        ]
+        if not active_agents:
+            return False
+
+        conflicts = shared.detect_conflicts()
+        self._resolve_step_conflicts(conflicts, cursors, shared)
+        agent_results = self._evaluate_active_agents(
+            active_agents, cursors, shared, interpreters,
+        )
+
+        if agent_results:
+            agreed, agreement_level, _ = self.consensus_model.check_agreement(agent_results)
+            self._log_step(step, active_agents, cursors, agreed, agreement_level, conflicts)
+
+        for agent_id in active_agents:
+            cursors[agent_id].advance(1)
+        return True
 
     def _create_interpreters(self, agent_ids: list[str]) -> dict:
         """Create an interpreter instance for each agent."""

@@ -336,23 +336,16 @@ def _san_read_u16(data: bytes, offset: int) -> int:
 # Per-language adapters: native AST → list[NativeInstruction]
 # ════════════════════════════════════════════════════════════════════
 
-def _adapt_zho(native_ast: Any) -> list[NativeInstruction]:
-    """Adapt ZHO CompilationResult to NativeInstruction list.
+def _parse_zho_assembly_lines(
+    assembly: str,
+    pattern_name: str,
+    captures: dict,
+) -> list[NativeInstruction]:
+    """Parse ZHO assembly text lines into NativeInstruction list.
 
-    Accepts a dict with keys: assembly (str), pattern_name (str),
-    captures (dict).  Parses the assembly text into instructions.
+    Extracted from _adapt_zho to reduce function complexity.
+    Skips blank lines, comments (-- and //), and label definitions.
     """
-    if isinstance(native_ast, dict):
-        assembly = native_ast.get("assembly", "")
-        pattern_name = native_ast.get("pattern_name", "")
-        captures = native_ast.get("captures", {})
-    elif isinstance(native_ast, str):
-        assembly = native_ast
-        pattern_name = ""
-        captures = {}
-    else:
-        return []
-
     instructions: list[NativeInstruction] = []
     for line in assembly.strip().split("\n"):
         line = line.strip()
@@ -377,6 +370,26 @@ def _adapt_zho(native_ast: Any) -> list[NativeInstruction]:
         ))
 
     return instructions
+
+
+def _adapt_zho(native_ast: Any) -> list[NativeInstruction]:
+    """Adapt ZHO CompilationResult to NativeInstruction list.
+
+    Accepts a dict with keys: assembly (str), pattern_name (str),
+    captures (dict).  Parses the assembly text into instructions.
+    """
+    if isinstance(native_ast, dict):
+        assembly = native_ast.get("assembly", "")
+        pattern_name = native_ast.get("pattern_name", "")
+        captures = native_ast.get("captures", {})
+    elif isinstance(native_ast, str):
+        assembly = native_ast
+        pattern_name = ""
+        captures = {}
+    else:
+        return []
+
+    return _parse_zho_assembly_lines(assembly, pattern_name, captures)
 
 
 def _adapt_deu(native_ast: Any) -> list[NativeInstruction]:
@@ -415,6 +428,29 @@ def _adapt_deu(native_ast: Any) -> list[NativeInstruction]:
     return instructions
 
 
+def _decode_san_operands(op_byte: int, operands: list[int]) -> list[int]:
+    """Decode special SAN instruction operand formats.
+
+    Handles MOVI (reg, lo, hi → reg, immediate) and conditional jumps
+    (reg, lo, hi → reg, addr) that use 16-bit little-endian encoding.
+    """
+    # Special handling for MOVI (reg, lo, hi → reg, immediate)
+    if op_byte == 0x2B and len(operands) == 3:
+        reg = operands[0]
+        imm = operands[1] | (operands[2] << 8)
+        if imm > 32767:
+            imm -= 65536
+        return [reg, imm]
+
+    # Special handling for conditional jumps (reg, lo, hi → reg, addr)
+    if op_byte in (0x05, 0x06, 0x2E, 0x2F, 0x36, 0x37) and len(operands) == 3:
+        reg = operands[0]
+        addr = operands[1] | (operands[2] << 8)
+        return [reg, addr]
+
+    return operands
+
+
 def _adapt_san(native_ast: Any) -> list[NativeInstruction]:
     """Adapt SAN bytearray to NativeInstruction list.
 
@@ -431,21 +467,9 @@ def _adapt_san(native_ast: Any) -> list[NativeInstruction]:
         op_byte = data[offset]
         op_name = _SAN_OPCODE_NAMES.get(op_byte, f"UNKNOWN_0x{op_byte:02x}")
         size = _SAN_INSTRUCTION_SIZES.get(op_byte, 1)
-        operands = list(data[offset + 1:offset + size]) if size > 1 else []
+        raw_operands = list(data[offset + 1:offset + size]) if size > 1 else []
 
-        # Special handling for MOVI (reg, lo, hi → reg, immediate)
-        if op_byte == 0x2B and size == 4:
-            reg = operands[0]
-            imm = operands[1] | (operands[2] << 8)
-            if imm > 32767:
-                imm -= 65536
-            operands = [reg, imm]
-
-        # Special handling for conditional jumps (reg, lo, hi → reg, addr)
-        if op_byte in (0x05, 0x06, 0x2E, 0x2F, 0x36, 0x37) and size == 4:
-            reg = operands[0]
-            addr = operands[1] | (operands[2] << 8)
-            operands = [reg, addr]
+        operands = _decode_san_operands(op_byte, raw_operands)
 
         instructions.append(NativeInstruction(
             opcode=op_name,
@@ -764,6 +788,15 @@ class ASTUnifier:
 
     # ── Tree building ────────────────────────────────────────────
 
+    def _filter_meaningful_instructions(
+        self, instructions: list[NativeInstruction],
+    ) -> list[NativeInstruction]:
+        """Filter out NOPs and protocol-only ops that carry no structural info."""
+        _SKIP_OPS = frozenset({
+            "NOP", "CAP_REQUIRE", "CAP_CHECK", "SCOPE_PUSH", "SCOPE_POP",
+        })
+        return [i for i in instructions if i.opcode not in _SKIP_OPS]
+
     def _build_tree(self, instructions: list[NativeInstruction],
                     source_lang: str,
                     warnings: list[str] | None = None) -> UnifiedASTNode:
@@ -781,10 +814,7 @@ class ASTUnifier:
             warnings = []
 
         # Filter out NOPs and protocol-only ops at the top level
-        _SKIP_OPS = frozenset({
-            "NOP", "CAP_REQUIRE", "CAP_CHECK", "SCOPE_PUSH", "SCOPE_POP",
-        })
-        meaningful = [i for i in instructions if i.opcode not in _SKIP_OPS]
+        meaningful = self._filter_meaningful_instructions(instructions)
 
         if not meaningful:
             return UnifiedASTNode.nop(source_lang=source_lang)
@@ -808,6 +838,170 @@ class ASTUnifier:
 
         return UnifiedASTNode.sequence(*blocks, source_lang=source_lang)
 
+    # ── Instruction-to-node conversion helpers ───────────────────
+
+    def _convert_binary_arith_instr(
+        self,
+        op: str,
+        operands: list[Any],
+        source_lang: str,
+        meta: dict[str, Any],
+        instr: NativeInstruction,
+    ) -> UnifiedASTNode | None:
+        """Convert a binary arithmetic instruction to a UnifiedASTNode.
+
+        Handles both 3-register form (dest, src_a, src_b) and 2-operand
+        stack-based form.  Returns None if *op* is not a binary arithmetic op.
+        """
+        if op not in _BINARY_ARITH_OPS:
+            return None
+
+        # Binary arithmetic: MOVI R0, a / MOVI R1, b / IADD R0, R0, R1
+        # This is a single instruction like IADD R0, R0, R1
+        if len(operands) >= 3:
+            # operands = [dest, src_a, src_b] — typical 3-register form
+            dest = operands[0]
+            src_a = operands[1]
+            src_b = operands[2]
+            return UnifiedASTNode.application(
+                op,
+                self._operand_to_node(src_a, source_lang),
+                self._operand_to_node(src_b, source_lang),
+                **meta,
+                dest=str(dest),
+                original=instr.opcode,
+            )
+
+        # Binary arithmetic: 2-operand form (stack-based, e.g., DEU ADD)
+        children = [self._operand_to_node(o, source_lang)
+                    for o in operands]
+        return UnifiedASTNode.application(op, *children, **meta,
+                                          original=instr.opcode)
+
+    def _convert_movi_instr(
+        self,
+        op: str,
+        operands: list[Any],
+        source_lang: str,
+        meta: dict[str, Any],
+        instr: NativeInstruction,
+    ) -> UnifiedASTNode | None:
+        """Convert a MOVI/CONST instruction to a UnifiedASTNode.
+
+        Handles both 2-operand form (reg, val) and 1-operand form (val).
+        Returns None if *op* is not a MOVI/CONST op.
+        """
+        if op not in ("movi", "const"):
+            return None
+
+        # MOVI / CONST: load immediate
+        if len(operands) >= 2:
+            reg = operands[0]
+            val = operands[1]
+            return UnifiedASTNode.application(
+                "movi",
+                UnifiedASTNode.variable(str(reg), source_lang=source_lang),
+                UnifiedASTNode.literal(val, source_lang=source_lang),
+                **meta,
+                original=instr.opcode,
+            )
+        elif len(operands) == 1:
+            return UnifiedASTNode.literal(operands[0], **meta)
+
+        return None
+
+    def _convert_simple_app_instr(
+        self,
+        op: str,
+        operands: list[Any],
+        source_lang: str,
+        meta: dict[str, Any],
+        instr: NativeInstruction,
+    ) -> UnifiedASTNode | None:
+        """Convert instructions that map operands directly to application children.
+
+        Handles IO/agent protocol ops, unary ops, compound ops, memory ops,
+        comparison ops, and DEU-specific ops.  Returns None if *op* does not
+        match any of these categories.
+        """
+        # Print / TELL / ASK / BROADCAST
+        if op in ("print", "tell", "ask", "delegate", "broadcast"):
+            children = [self._operand_to_node(o, source_lang) for o in operands]
+            return UnifiedASTNode.application(
+                op, *children, **meta, original=instr.opcode)
+
+        # Unary operations: INC R0, DEC R1, etc.
+        if op in _UNARY_OPS:
+            target = operands[0] if operands else None
+            return UnifiedASTNode.application(
+                op,
+                self._operand_to_node(target, source_lang) if target is not None
+                else UnifiedASTNode.nop(),
+                **meta,
+                original=instr.opcode,
+            )
+
+        # Compound operations: sum_range, factorial
+        if op in _COMPOUND_OPS:
+            children = [self._operand_to_node(o, source_lang) for o in operands]
+            return UnifiedASTNode.application(op, *children, **meta,
+                                              original=instr.opcode)
+
+        # MOV / LOAD / STORE: register operations
+        if op in ("mov", "load", "store"):
+            children = [self._operand_to_node(o, source_lang) for o in operands]
+            return UnifiedASTNode.application(op, *children, **meta,
+                                              original=instr.opcode)
+
+        # Comparison
+        if op in ("cmp", "icmp"):
+            children = [self._operand_to_node(o, source_lang) for o in operands]
+            return UnifiedASTNode.application("cmp", *children, **meta,
+                                              original=instr.opcode)
+
+        # DEU-specific: DEFER, CAP_CHECK, etc.
+        if op in ("defer", "cap_check", "scope_push", "scope_pop",
+                  "execute_deferred", "cont_prepare", "cont_complete"):
+            return UnifiedASTNode.application(op, **meta,
+                                              original=instr.opcode)
+
+        return None
+
+    def _convert_control_flow_instr(
+        self,
+        op: str,
+        operands: list[Any],
+        source_lang: str,
+        meta: dict[str, Any],
+        instr: NativeInstruction,
+    ) -> UnifiedASTNode | None:
+        """Convert control-flow instructions (jumps, stack ops).
+
+        Returns None if *op* is not a control-flow op.
+        """
+        # Conditional jumps → conditional nodes
+        if op in ("jz", "jnz", "je", "jne", "jl", "jge"):
+            children = [self._operand_to_node(o, source_lang) for o in operands]
+            return UnifiedASTNode.application(op, *children, **meta,
+                                              original=instr.opcode)
+
+        # JMP → unconditional jump
+        if op == "jmp":
+            target = operands[0] if operands else 0
+            return UnifiedASTNode.application("jmp",
+                                              UnifiedASTNode.literal(target),
+                                              **meta)
+
+        # Stack operations
+        if op in ("push", "pop"):
+            if operands:
+                return UnifiedASTNode.application(
+                    op, self._operand_to_node(operands[0], source_lang),
+                    **meta)
+            return UnifiedASTNode.application(op, **meta)
+
+        return None
+
     def _instr_to_node(self, instr: NativeInstruction,
                        source_lang: str,
                        warnings: list[str]) -> UnifiedASTNode:
@@ -827,115 +1021,22 @@ class ASTUnifier:
         if op == "nop":
             return UnifiedASTNode.nop(**meta)
 
-        # Print / TELL / ASK / BROADCAST
-        if op in ("print", "tell", "ask", "delegate", "broadcast"):
-            children = []
-            for operand in operands:
-                children.append(self._operand_to_node(operand, source_lang))
-            return UnifiedASTNode.application(
-                op,
-                *children,
-                **meta,
-                original=instr.opcode,
-            )
+        # Delegated instruction handlers
+        node = self._convert_binary_arith_instr(op, operands, source_lang, meta, instr)
+        if node is not None:
+            return node
 
-        # Binary arithmetic: MOVI R0, a / MOVI R1, b / IADD R0, R0, R1
-        # This is a single instruction like IADD R0, R0, R1
-        if op in _BINARY_ARITH_OPS and len(operands) >= 3:
-            # operands = [dest, src_a, src_b] — typical 3-register form
-            dest = operands[0]
-            src_a = operands[1]
-            src_b = operands[2]
-            return UnifiedASTNode.application(
-                op,
-                self._operand_to_node(src_a, source_lang),
-                self._operand_to_node(src_b, source_lang),
-                **meta,
-                dest=str(dest),
-                original=instr.opcode,
-            )
+        node = self._convert_movi_instr(op, operands, source_lang, meta, instr)
+        if node is not None:
+            return node
 
-        # Binary arithmetic: 2-operand form (stack-based, e.g., DEU ADD)
-        if op in _BINARY_ARITH_OPS and len(operands) <= 2:
-            children = [self._operand_to_node(o, source_lang)
-                        for o in operands]
-            return UnifiedASTNode.application(op, *children, **meta,
-                                              original=instr.opcode)
+        node = self._convert_simple_app_instr(op, operands, source_lang, meta, instr)
+        if node is not None:
+            return node
 
-        # Unary operations: INC R0, DEC R1, etc.
-        if op in _UNARY_OPS:
-            target = operands[0] if operands else None
-            return UnifiedASTNode.application(
-                op,
-                self._operand_to_node(target, source_lang) if target is not None
-                else UnifiedASTNode.nop(),
-                **meta,
-                original=instr.opcode,
-            )
-
-        # Compound operations: sum_range, factorial
-        if op in _COMPOUND_OPS:
-            children = [self._operand_to_node(o, source_lang)
-                        for o in operands]
-            return UnifiedASTNode.application(op, *children, **meta,
-                                              original=instr.opcode)
-
-        # MOVI / CONST: load immediate
-        if op in ("movi", "const"):
-            if len(operands) >= 2:
-                reg = operands[0]
-                val = operands[1]
-                return UnifiedASTNode.application(
-                    "movi",
-                    UnifiedASTNode.variable(str(reg), source_lang=source_lang),
-                    UnifiedASTNode.literal(val, source_lang=source_lang),
-                    **meta,
-                    original=instr.opcode,
-                )
-            elif len(operands) == 1:
-                return UnifiedASTNode.literal(operands[0], **meta)
-
-        # MOV / LOAD / STORE: register operations
-        if op in ("mov", "load", "store"):
-            children = [self._operand_to_node(o, source_lang)
-                        for o in operands]
-            return UnifiedASTNode.application(op, *children, **meta,
-                                              original=instr.opcode)
-
-        # Comparison
-        if op in ("cmp", "icmp"):
-            children = [self._operand_to_node(o, source_lang)
-                        for o in operands]
-            return UnifiedASTNode.application("cmp", *children, **meta,
-                                              original=instr.opcode)
-
-        # Conditional jumps → conditional nodes
-        if op in ("jz", "jnz", "je", "jne", "jl", "jge"):
-            children = [self._operand_to_node(o, source_lang)
-                        for o in operands]
-            return UnifiedASTNode.application(op, *children, **meta,
-                                              original=instr.opcode)
-
-        # JMP → unconditional jump
-        if op == "jmp":
-            target = operands[0] if operands else 0
-            return UnifiedASTNode.application("jmp",
-                                              UnifiedASTNode.literal(target),
-                                              **meta)
-
-        # Stack operations
-        if op in ("push", "pop"):
-            if operands:
-                return UnifiedASTNode.application(
-                    op, self._operand_to_node(operands[0], source_lang),
-                    **meta)
-            return UnifiedASTNode.application(op, **meta)
-
-        # DEU-specific: DEFER, CAP_CHECK, etc.
-        if op in ("defer", "cap_check", "scope_push", "scope_pop",
-                  "execute_deferred", "cont_prepare", "cont_complete"):
-            return UnifiedASTNode.application(op, **meta,
-                                              original=instr.opcode)
+        node = self._convert_control_flow_instr(op, operands, source_lang, meta, instr)
+        if node is not None:
+            return node
 
         # Fallback: unknown operation
         children = [self._operand_to_node(o, source_lang)
@@ -971,6 +1072,48 @@ class ASTUnifier:
         # Unknown operand type — treat as literal
         return UnifiedASTNode.literal(operand, source_lang=source_lang)
 
+    # ── Block grouping helpers ───────────────────────────────────
+
+    def _try_group_load_imm_pair(
+        self,
+        instructions: list[NativeInstruction],
+        i: int,
+        source_lang: str,
+    ) -> tuple[UnifiedASTNode, int] | None:
+        """Try to group a load-imm + load-imm + binary-arith triple.
+
+        If instructions[i] is MOVI/CONST/LOAD_IMM and the next two
+        instructions form a load-imm + binary-arith pair, returns the
+        combined node and the number of instructions consumed (3).
+        Otherwise returns None.
+        """
+        op = _normalize_op(instructions[i].opcode)
+        if op not in ("movi", "const", "load_imm"):
+            return None
+        if i + 2 >= len(instructions):
+            return None
+
+        next_op = _normalize_op(instructions[i + 1].opcode)
+        next_next_op = _normalize_op(instructions[i + 2].opcode)
+        if (next_op in ("movi", "const", "load_imm")
+                and next_next_op in _BINARY_ARITH_OPS):
+            # Extract values
+            val_a = self._extract_movi_value(instructions[i].operands)
+            val_b = self._extract_movi_value(instructions[i + 1].operands)
+            arith_instr = instructions[i + 2]
+            arith_op = _normalize_op(arith_instr.opcode)
+
+            node = UnifiedASTNode.application(
+                arith_op,
+                UnifiedASTNode.literal(val_a, source_lang=source_lang),
+                UnifiedASTNode.literal(val_b, source_lang=source_lang),
+                source_lang=source_lang,
+                original_op=arith_instr.opcode,
+            )
+            return (node, 3)
+
+        return None
+
     def _group_into_blocks(self, instructions: list[NativeInstruction],
                            source_lang: str,
                            warnings: list[str]) -> list[UnifiedASTNode]:
@@ -989,36 +1132,17 @@ class ASTUnifier:
             instr = instructions[i]
             op = _normalize_op(instr.opcode)
 
-            # MOVI/CONST/LOAD_IMM + MOVI/CONST/LOAD_IMM + binary_arith
-            # → single application node
+            # Try to group MOVI/CONST/LOAD_IMM + MOVI/CONST/LOAD_IMM + binary_arith
+            pair_result = self._try_group_load_imm_pair(
+                instructions, i, source_lang)
+            if pair_result is not None:
+                node, consumed = pair_result
+                blocks.append(node)
+                i += consumed
+                continue
+
+            # Single MOVI → literal assignment
             if op in ("movi", "const", "load_imm"):
-                # Look ahead for a second load-imm and then a binary op
-                if (i + 2 < len(instructions)):
-                    next_op = _normalize_op(instructions[i + 1].opcode)
-                    next_next_op = _normalize_op(instructions[i + 2].opcode)
-                    if (next_op in ("movi", "const", "load_imm")
-                            and next_next_op in _BINARY_ARITH_OPS):
-                        # Extract values
-                        val_a = self._extract_movi_value(instr.operands)
-                        val_b = self._extract_movi_value(
-                            instructions[i + 1].operands)
-                        arith_instr = instructions[i + 2]
-                        arith_op = _normalize_op(arith_instr.opcode)
-
-                        node = UnifiedASTNode.application(
-                            arith_op,
-                            UnifiedASTNode.literal(val_a,
-                                                  source_lang=source_lang),
-                            UnifiedASTNode.literal(val_b,
-                                                  source_lang=source_lang),
-                            source_lang=source_lang,
-                            original_op=arith_instr.opcode,
-                        )
-                        blocks.append(node)
-                        i += 3
-                        continue
-
-                # Single MOVI → literal assignment
                 val = self._extract_movi_value(instr.operands)
                 blocks.append(UnifiedASTNode.literal(val,
                                                      source_lang=source_lang))
@@ -1059,38 +1183,29 @@ class ASTUnifier:
 
     # ── Tree distance computation ────────────────────────────────
 
-    def _tree_distance(self, a: UnifiedASTNode, b: UnifiedASTNode,
-                       depth: int) -> float:
-        """Recursive structural distance computation.
-
-        Uses a weighted combination of:
-          1. Type mismatch penalty
-          2. Operation mismatch penalty
-          3. Value mismatch penalty
-          4. Child distance (recursive, with depth decay)
-        """
-        # Depth limit to prevent excessive recursion
-        if depth > 20:
-            return 1.0
-
-        # Exact match → distance 0
-        if a.structural_key() == b.structural_key():
-            return 0.0
-
-        # Type mismatch → high penalty
-        if a.node_type != b.node_type:
-            # Both are leaf nodes of different types
-            a_is_leaf = a.node_type in (NodeKind.LITERAL, NodeKind.VARIABLE)
-            b_is_leaf = b.node_type in (NodeKind.LITERAL, NodeKind.VARIABLE)
-            if a_is_leaf and b_is_leaf:
-                return 0.5
-            # One is leaf, one is branch → very different
-            if a_is_leaf != b_is_leaf:
-                return 0.8
-            # Both branches but different types → moderate penalty
+    def _distance_type_mismatch(
+        self,
+        a: UnifiedASTNode,
+        b: UnifiedASTNode,
+    ) -> float:
+        """Compute distance when two nodes have different types."""
+        a_is_leaf = a.node_type in (NodeKind.LITERAL, NodeKind.VARIABLE)
+        b_is_leaf = b.node_type in (NodeKind.LITERAL, NodeKind.VARIABLE)
+        if a_is_leaf and b_is_leaf:
             return 0.5
+        # One is leaf, one is branch → very different
+        if a_is_leaf != b_is_leaf:
+            return 0.8
+        # Both branches but different types → moderate penalty
+        return 0.5
 
-        # Same node type — drill into details
+    def _distance_same_type(
+        self,
+        a: UnifiedASTNode,
+        b: UnifiedASTNode,
+        depth: int,
+    ) -> float:
+        """Compute distance when two nodes have the same type."""
         weight = 1.0 / (1.0 + depth * 0.1)  # Decay weight with depth
 
         if a.node_type == NodeKind.LITERAL:
@@ -1140,6 +1255,31 @@ class ASTUnifier:
 
         # NOP, HALT, UNKNOWN — same type = same
         return 0.0
+
+    def _tree_distance(self, a: UnifiedASTNode, b: UnifiedASTNode,
+                       depth: int) -> float:
+        """Recursive structural distance computation.
+
+        Uses a weighted combination of:
+          1. Type mismatch penalty
+          2. Operation mismatch penalty
+          3. Value mismatch penalty
+          4. Child distance (recursive, with depth decay)
+        """
+        # Depth limit to prevent excessive recursion
+        if depth > 20:
+            return 1.0
+
+        # Exact match → distance 0
+        if a.structural_key() == b.structural_key():
+            return 0.0
+
+        # Type mismatch → high penalty
+        if a.node_type != b.node_type:
+            return self._distance_type_mismatch(a, b)
+
+        # Same node type — drill into details
+        return self._distance_same_type(a, b, depth)
 
     def _children_distance(self, a_children: list[UnifiedASTNode],
                            b_children: list[UnifiedASTNode],
@@ -1202,6 +1342,38 @@ class ASTUnifier:
             groups.setdefault(h, []).append(i)
         return groups
 
+    # ── Equivalence class helpers ────────────────────────────────
+
+    @staticmethod
+    def _union_find_groups(n: int, pairs: list[tuple[int, int]]) -> list[list[int]]:
+        """Group indices using Union-Find from a list of connected pairs.
+
+        Returns sorted list of groups (each group is a list of indices).
+        """
+        parent = list(range(n))
+
+        def find(x: int) -> int:
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
+
+        def union(x: int, y: int) -> None:
+            px, py = find(x), find(y)
+            if px != py:
+                parent[px] = py
+
+        for x, y in pairs:
+            union(x, y)
+
+        # Collect groups
+        groups: dict[int, list[int]] = {}
+        for i in range(n):
+            root = find(i)
+            groups.setdefault(root, []).append(i)
+
+        return sorted(groups.values(), key=lambda g: g[0])
+
     def find_equivalence_classes(
         self, nodes: list[UnifiedASTNode], threshold: float = 0.3
     ) -> list[list[int]]:
@@ -1222,34 +1394,61 @@ class ASTUnifier:
         if n == 0:
             return []
 
-        # Union-Find for grouping
-        parent = list(range(n))
-
-        def find(x: int) -> int:
-            while parent[x] != x:
-                parent[x] = parent[parent[x]]
-                x = parent[x]
-            return x
-
-        def union(x: int, y: int) -> None:
-            px, py = find(x), find(y)
-            if px != py:
-                parent[px] = py
-
-        # Compare all pairs
+        # Collect all pairs within threshold
+        pairs: list[tuple[int, int]] = []
         for i in range(n):
             for j in range(i + 1, n):
                 dist = self.structural_distance(nodes[i], nodes[j])
                 if dist <= threshold:
-                    union(i, j)
+                    pairs.append((i, j))
 
-        # Collect groups
-        groups: dict[int, list[int]] = {}
-        for i in range(n):
-            root = find(i)
-            groups.setdefault(root, []).append(i)
+        return self._union_find_groups(n, pairs)
 
-        return sorted(groups.values(), key=lambda g: g[0])
+    # ── Diff helpers ────────────────────────────────────────────
+
+    @staticmethod
+    def _diff_walk(
+        na: UnifiedASTNode,
+        nb: UnifiedASTNode,
+        path: str,
+        diffs: list[str],
+    ) -> None:
+        """Recursively walk two ASTs and collect structural differences."""
+        if na.structural_key() == nb.structural_key():
+            return
+
+        if na.node_type != nb.node_type:
+            diffs.append(f"{path}: type mismatch: {na.node_type} vs {nb.node_type}")
+            return
+
+        if na.node_type == NodeKind.LITERAL:
+            a_val = na.metadata.get("value")
+            b_val = nb.metadata.get("value")
+            diffs.append(f"{path}: value mismatch: {a_val} vs {b_val}")
+            return
+
+        if na.node_type == NodeKind.VARIABLE:
+            a_name = na.metadata.get("name")
+            b_name = nb.metadata.get("name")
+            diffs.append(f"{path}: variable mismatch: {a_name} vs {b_name}")
+            return
+
+        if na.node_type == NodeKind.APPLICATION:
+            a_op = na.metadata.get("operation", "?")
+            b_op = nb.metadata.get("operation", "?")
+            if a_op != b_op:
+                diffs.append(f"{path}: operation mismatch: {a_op} vs {b_op}")
+
+        # Recurse into children
+        max_children = max(len(na.children), len(nb.children))
+        for i in range(max_children):
+            child_path = f"{path}[{i}]"
+            if i >= len(na.children):
+                diffs.append(f"{child_path}: only in right ({nb.children[i].node_type})")
+            elif i >= len(nb.children):
+                diffs.append(f"{child_path}: only in left ({na.children[i].node_type})")
+            else:
+                ASTUnifier._diff_walk(na.children[i], nb.children[i], child_path, diffs)
 
     def diff(self, a: UnifiedASTNode, b: UnifiedASTNode) -> list[str]:
         """Produce a human-readable diff between two unified ASTs.
@@ -1257,43 +1456,5 @@ class ASTUnifier:
         Returns a list of diff lines describing structural differences.
         """
         diffs: list[str] = []
-
-        def _walk(na: UnifiedASTNode, nb: UnifiedASTNode, path: str) -> None:
-            if na.structural_key() == nb.structural_key():
-                return
-
-            if na.node_type != nb.node_type:
-                diffs.append(f"{path}: type mismatch: {na.node_type} vs {nb.node_type}")
-                return
-
-            if na.node_type == NodeKind.LITERAL:
-                a_val = na.metadata.get("value")
-                b_val = nb.metadata.get("value")
-                diffs.append(f"{path}: value mismatch: {a_val} vs {b_val}")
-                return
-
-            if na.node_type == NodeKind.VARIABLE:
-                a_name = na.metadata.get("name")
-                b_name = nb.metadata.get("name")
-                diffs.append(f"{path}: variable mismatch: {a_name} vs {b_name}")
-                return
-
-            if na.node_type == NodeKind.APPLICATION:
-                a_op = na.metadata.get("operation", "?")
-                b_op = nb.metadata.get("operation", "?")
-                if a_op != b_op:
-                    diffs.append(f"{path}: operation mismatch: {a_op} vs {b_op}")
-
-            # Recurse into children
-            max_children = max(len(na.children), len(nb.children))
-            for i in range(max_children):
-                child_path = f"{path}[{i}]"
-                if i >= len(na.children):
-                    diffs.append(f"{child_path}: only in right ({nb.children[i].node_type})")
-                elif i >= len(nb.children):
-                    diffs.append(f"{child_path}: only in left ({na.children[i].node_type})")
-                else:
-                    _walk(na.children[i], nb.children[i], child_path)
-
-        _walk(a, b, "root")
+        self._diff_walk(a, b, "root", diffs)
         return diffs
