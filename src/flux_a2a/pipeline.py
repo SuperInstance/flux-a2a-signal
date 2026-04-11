@@ -626,6 +626,26 @@ class AgentWorkflowPipeline:
         if turn_generator is None:
             turn_generator = self._make_turn_generator(branch_results)
 
+        self._run_discussion_rounds(protocol, turn_generator)
+
+        result = protocol.conclude()
+        self._log(
+            WorkflowStatus.DISCUSSING.value,
+            f"Discussion completed: {result.outcome}",
+            {
+                "outcome": result.outcome,
+                "confidence": result.confidence,
+                "turns": len(result.turns),
+            },
+        )
+        return result
+
+    def _run_discussion_rounds(
+        self,
+        protocol: DiscussionProtocol,
+        turn_generator: Callable,
+    ) -> None:
+        """Run synchronous discussion rounds until completion or max rounds."""
         # Run synchronous discussion (for async, use protocol.run())
         for round_num in range(self.spec.max_rounds):
             is_done, _ = protocol.check_completion()
@@ -641,17 +661,134 @@ class AgentWorkflowPipeline:
 
             self._discussion_rounds += 1
 
-        result = protocol.conclude()
-        self._log(
-            WorkflowStatus.DISCUSSING.value,
-            f"Discussion completed: {result.outcome}",
-            {
-                "outcome": result.outcome,
-                "confidence": result.confidence,
-                "turns": len(result.turns),
+    def _build_turn_content(
+        self,
+        agent: AgentSpec,
+        fmt: str,
+        phase: str,
+        round_num: int,
+        confidence: float,
+    ) -> tuple[dict[str, Any], Optional[str]]:
+        """Build turn content dict and challenge_to based on discussion format."""
+        content: dict[str, Any] = {"type": "argument"}
+        challenge_to: Optional[str] = None
+
+        if fmt == DiscussionFormat.DEBATE.value:
+            content, challenge_to = self._build_debate_content(
+                agent, round_num, content
+            )
+        elif fmt == DiscussionFormat.BRAINSTORM.value:
+            content = self._build_brainstorm_content(agent, phase, confidence)
+        elif fmt == DiscussionFormat.REVIEW.value:
+            content = self._build_review_content(agent, round_num, confidence)
+        elif fmt == DiscussionFormat.NEGOTIATION.value:
+            content = self._build_negotiation_content(agent, round_num)
+        elif fmt == DiscussionFormat.PEER_REVIEW.value:
+            content = self._build_peer_review_content(agent, confidence)
+
+        return content, challenge_to
+
+    def _build_debate_content(
+        self,
+        agent: AgentSpec,
+        round_num: int,
+        content: dict[str, Any],
+    ) -> tuple[dict[str, Any], Optional[str]]:
+        """Build debate-format turn content."""
+        challenge_to: Optional[str] = None
+        if agent.stance == "pro":
+            content.update({
+                "type": "argument",
+                "argument": f"Pro argument from {agent.id}: supporting position",
+                "point": "support",
+            })
+        elif agent.stance == "con":
+            content.update({
+                "type": "argument",
+                "argument": f"Con argument from {agent.id}: opposing position",
+                "point": "oppose",
+            })
+        else:
+            content.update({
+                "type": "synthesis",
+                "argument": f"Synthesis from {agent.id}: integrating perspectives",
+                "point": "synthesize",
+            })
+
+        # After a few rounds, introduce concessions
+        if round_num >= 2:
+            content["type"] = "concession"
+            challenge_to = None
+
+        return content, challenge_to
+
+    def _build_brainstorm_content(
+        self,
+        agent: AgentSpec,
+        phase: str,
+        confidence: float,
+    ) -> dict[str, Any]:
+        """Build brainstorm-format turn content."""
+        content: dict[str, Any] = {"type": "argument"}
+        if phase == Phase.GENERATE.value:
+            content.update({
+                "type": "idea",
+                "content": f"Idea from {agent.id}: novel approach to {self.spec.goal}",
+            })
+        else:
+            content.update({
+                "type": "evaluation",
+                "target_idea": "idea-0",
+                "score": confidence,
+                "comment": f"{agent.id} evaluates",
+            })
+        return content
+
+    def _build_review_content(
+        self,
+        agent: AgentSpec,
+        round_num: int,
+        confidence: float,
+    ) -> dict[str, Any]:
+        """Build review-format turn content."""
+        return {
+            "type": "criterion_review",
+            "criterion": "correctness" if round_num % 2 == 0 else "efficiency",
+            "score": confidence,
+            "notes": f"Review by {agent.id}",
+        }
+
+    def _build_negotiation_content(
+        self,
+        agent: AgentSpec,
+        round_num: int,
+    ) -> dict[str, Any]:
+        """Build negotiation-format turn content."""
+        return {
+            "type": "proposal" if round_num <= 1 else "compromise",
+            "proposal_vector": [
+                0.8 if agent.stance == "pro" else 0.2,
+                0.5,
+            ],
+            "description": f"Proposal from {agent.id}",
+        }
+
+    def _build_peer_review_content(
+        self,
+        agent: AgentSpec,
+        confidence: float,
+    ) -> dict[str, Any]:
+        """Build peer-review-format turn content."""
+        return {
+            "type": "independent_review_result",
+            "scores": {
+                "correctness": confidence,
+                "completeness": confidence * 0.9,
+                "clarity": confidence * 0.85,
             },
-        )
-        return result
+            "summary": f"Review by {agent.id}",
+            "recommendation": "accept" if confidence > 0.7 else "revise",
+        }
 
     def _make_turn_generator(
         self,
@@ -679,77 +816,9 @@ class AgentWorkflowPipeline:
                 # Simulate convergence: shift confidence slightly toward center
                 confidence = min(0.95, confidence + 0.05)
 
-            content: dict[str, Any] = {"type": "argument"}
-            challenge_to = None
-
-            if fmt == DiscussionFormat.DEBATE.value:
-                if agent.stance == "pro":
-                    content.update({
-                        "type": "argument",
-                        "argument": f"Pro argument from {agent.id}: supporting position",
-                        "point": "support",
-                    })
-                elif agent.stance == "con":
-                    content.update({
-                        "type": "argument",
-                        "argument": f"Con argument from {agent.id}: opposing position",
-                        "point": "oppose",
-                    })
-                else:
-                    content.update({
-                        "type": "synthesis",
-                        "argument": f"Synthesis from {agent.id}: integrating perspectives",
-                        "point": "synthesize",
-                    })
-
-                # After a few rounds, introduce concessions
-                if round_num >= 2:
-                    content["type"] = "concession"
-                    challenge_to = None
-
-            elif fmt == DiscussionFormat.BRAINSTORM.value:
-                if phase == Phase.GENERATE.value:
-                    content.update({
-                        "type": "idea",
-                        "content": f"Idea from {agent.id}: novel approach to {self.spec.goal}",
-                    })
-                else:
-                    content.update({
-                        "type": "evaluation",
-                        "target_idea": "idea-0",
-                        "score": confidence,
-                        "comment": f"{agent.id} evaluates",
-                    })
-
-            elif fmt == DiscussionFormat.REVIEW.value:
-                content.update({
-                    "type": "criterion_review",
-                    "criterion": "correctness" if round_num % 2 == 0 else "efficiency",
-                    "score": confidence,
-                    "notes": f"Review by {agent.id}",
-                })
-
-            elif fmt == DiscussionFormat.NEGOTIATION.value:
-                content.update({
-                    "type": "proposal" if round_num <= 1 else "compromise",
-                    "proposal_vector": [
-                        0.8 if agent.stance == "pro" else 0.2,
-                        0.5,
-                    ],
-                    "description": f"Proposal from {agent.id}",
-                })
-
-            elif fmt == DiscussionFormat.PEER_REVIEW.value:
-                content.update({
-                    "type": "independent_review_result",
-                    "scores": {
-                        "correctness": confidence,
-                        "completeness": confidence * 0.9,
-                        "clarity": confidence * 0.85,
-                    },
-                    "summary": f"Review by {agent.id}",
-                    "recommendation": "accept" if confidence > 0.7 else "revise",
-                })
+            content, challenge_to = self._build_turn_content(
+                agent, fmt, phase, round_num, confidence
+            )
 
             return DiscussionTurn(
                 agent_id=agent.id,
@@ -776,15 +845,7 @@ class AgentWorkflowPipeline:
         """
         self._log(WorkflowStatus.DETECTING_CONSENSUS.value, "Checking consensus")
 
-        # Convert discussion positions to AgentPosition objects
-        positions = [
-            AgentPosition.from_dict(p)
-            for p in discussion_result.positions
-        ]
-
-        if not positions:
-            # No positions — extract from turn data
-            positions = self._extract_positions_from_turns(discussion_result)
+        positions = self._resolve_consensus_positions(discussion_result)
 
         has_consensus, metrics, stalemate = self.consensus_detector.check_consensus(
             positions,
@@ -805,6 +866,23 @@ class AgentWorkflowPipeline:
         )
 
         return has_consensus, metrics, stalemate
+
+    def _resolve_consensus_positions(
+        self,
+        discussion_result: DiscussionResult,
+    ) -> list[AgentPosition]:
+        """Extract positions from discussion result, falling back to turn data."""
+        # Convert discussion positions to AgentPosition objects
+        positions = [
+            AgentPosition.from_dict(p)
+            for p in discussion_result.positions
+        ]
+
+        if not positions:
+            # No positions — extract from turn data
+            positions = self._extract_positions_from_turns(discussion_result)
+
+        return positions
 
     def _extract_positions_from_turns(
         self,
@@ -859,8 +937,14 @@ class AgentWorkflowPipeline:
         )
 
         self._rebranch_count += 1
+        refined_agents = self._refine_agents_for_rebranch(stalemate)
+        return self._build_rebranch_spec(stalemate, refined_agents)
 
-        # Refine agent prompts based on stalemate
+    def _refine_agents_for_rebranch(
+        self,
+        stalemate: Stalemate,
+    ) -> list[AgentSpec]:
+        """Create refined agent specs based on stalemate information."""
         refined_agents: list[AgentSpec] = []
         for agent in self.spec.agents:
             refined = AgentSpec(
@@ -878,8 +962,15 @@ class AgentWorkflowPipeline:
                 goals=agent.goals,
             )
             refined_agents.append(refined)
+        return refined_agents
 
-        refined_spec = WorkflowSpec(
+    def _build_rebranch_spec(
+        self,
+        stalemate: Stalemate,
+        refined_agents: list[AgentSpec],
+    ) -> WorkflowSpec:
+        """Build a refined WorkflowSpec for re-branching."""
+        return WorkflowSpec(
             goal=f"[Re-branch {self._rebranch_count}] {self.spec.goal}",
             agents=refined_agents,
             branching_strategy=self.spec.branching_strategy,
@@ -900,8 +991,6 @@ class AgentWorkflowPipeline:
             },
         )
 
-        return refined_spec
-
     # -- Phase 6: Synthesize ------------------------------------------------
 
     def synthesize(
@@ -921,24 +1010,12 @@ class AgentWorkflowPipeline:
         """
         self._log(WorkflowStatus.SYNTHESIZING.value, "Synthesizing results")
 
-        method = self.spec.synthesis_method
+        output = self._compute_synthesis_output(
+            discussion_result, consensus_metrics, branch_results
+        )
+
         confidence = discussion_result.confidence
         quality_score = _clamp(confidence * consensus_metrics.agreement_score)
-
-        output: Any = None
-
-        if method == SynthesisApproach.BEST_CONFIDENCE.value:
-            output = self._synthesize_best_confidence(discussion_result, branch_results)
-        elif method == SynthesisApproach.WEIGHTED_MERGE.value:
-            output = self._synthesize_weighted_merge(discussion_result, branch_results)
-        elif method == SynthesisApproach.MAJORITY_VOTE.value:
-            output = self._synthesize_majority_vote(discussion_result, consensus_metrics)
-        elif method == SynthesisApproach.ALL_RESULTS.value:
-            output = self._synthesize_all(discussion_result, consensus_metrics, branch_results)
-        elif method == SynthesisApproach.COMPROMISE.value:
-            output = self._synthesize_compromise(discussion_result, consensus_metrics)
-        else:
-            output = self._synthesize_best_confidence(discussion_result, branch_results)
 
         # Check quality threshold
         meets_quality = quality_score >= self.spec.quality_threshold
@@ -949,6 +1026,46 @@ class AgentWorkflowPipeline:
             f"Synthesis complete: quality={quality_score:.2f}, meets_threshold={meets_quality}",
         )
 
+        return self._build_workflow_result(
+            output, confidence, quality_score,
+            discussion_result, consensus_metrics,
+            branch_results, meets_quality,
+        )
+
+    def _compute_synthesis_output(
+        self,
+        discussion_result: DiscussionResult,
+        consensus_metrics: AgreementMetrics,
+        branch_results: Optional[list[BranchResult]],
+    ) -> Any:
+        """Dispatch to the appropriate synthesis method based on spec."""
+        method = self.spec.synthesis_method
+
+        if method == SynthesisApproach.BEST_CONFIDENCE.value:
+            return self._synthesize_best_confidence(discussion_result, branch_results)
+        elif method == SynthesisApproach.WEIGHTED_MERGE.value:
+            return self._synthesize_weighted_merge(discussion_result, branch_results)
+        elif method == SynthesisApproach.MAJORITY_VOTE.value:
+            return self._synthesize_majority_vote(discussion_result, consensus_metrics)
+        elif method == SynthesisApproach.ALL_RESULTS.value:
+            return self._synthesize_all(discussion_result, consensus_metrics, branch_results)
+        elif method == SynthesisApproach.COMPROMISE.value:
+            return self._synthesize_compromise(discussion_result, consensus_metrics)
+        else:
+            return self._synthesize_best_confidence(discussion_result, branch_results)
+
+    def _build_workflow_result(
+        self,
+        output: Any,
+        confidence: float,
+        quality_score: float,
+        discussion_result: DiscussionResult,
+        consensus_metrics: AgreementMetrics,
+        branch_results: Optional[list[BranchResult]],
+        meets_quality: bool,
+    ) -> WorkflowResult:
+        """Build the final WorkflowResult from synthesis output."""
+        status = WorkflowStatus.COMPLETED.value if meets_quality else WorkflowStatus.COMPLETED.value
         return WorkflowResult(
             workflow_id=self.spec.id,
             goal=self.spec.goal,
@@ -1103,32 +1220,49 @@ class AgentWorkflowPipeline:
         has_consensus, consensus_metrics, stalemate = self.detect_consensus(discussion_result)
 
         # Phase 5: Handle stalemate with re-branching
-        if not has_consensus and stalemate is not None:
-            if self._rebranch_count < self.spec.max_rebranches:
-                refined_spec = self.rebranch(stalemate, branch_results)
-
-                # Create a sub-pipeline for the re-branch
-                sub_pipeline = AgentWorkflowPipeline(refined_spec, self.agent_executor)
-                sub_pipeline._rebranch_count = self._rebranch_count
-                sub_pipeline._stalemate_count = self._stalemate_count
-                sub_result = await sub_pipeline.execute(turn_generator)
-
-                # Merge sub-pipeline results
-                self._discussion_rounds += sub_result.discussion_rounds
-                self._rebranch_count = sub_result.rebranches
-                self._stalemate_count = sub_result.stalemates_detected
-                self._execution_log.extend(
-                    [PipelineStep(**s) if isinstance(s, dict) else s
-                     for s in sub_result.execution_log]
-                )
-
-                return sub_result
+        rebranch_result = await self._try_rebranch(
+            has_consensus, stalemate, branch_results, turn_generator
+        )
+        if rebranch_result is not None:
+            return rebranch_result
 
         # Phase 6: Synthesize
         result = self.synthesize(discussion_result, consensus_metrics, branch_results)
 
         self._log("execute", f"Workflow complete: {result.status}")
         return result
+
+    async def _try_rebranch(
+        self,
+        has_consensus: bool,
+        stalemate: Optional[Stalemate],
+        branch_results: list[BranchResult],
+        turn_generator: Optional[Callable],
+    ) -> Optional[WorkflowResult]:
+        """Attempt re-branching if stalemate detected. Returns sub-result or None."""
+        if has_consensus or stalemate is None:
+            return None
+        if self._rebranch_count >= self.spec.max_rebranches:
+            return None
+
+        refined_spec = self.rebranch(stalemate, branch_results)
+
+        # Create a sub-pipeline for the re-branch
+        sub_pipeline = AgentWorkflowPipeline(refined_spec, self.agent_executor)
+        sub_pipeline._rebranch_count = self._rebranch_count
+        sub_pipeline._stalemate_count = self._stalemate_count
+        sub_result = await sub_pipeline.execute(turn_generator)
+
+        # Merge sub-pipeline results
+        self._discussion_rounds += sub_result.discussion_rounds
+        self._rebranch_count = sub_result.rebranches
+        self._stalemate_count = sub_result.stalemates_detected
+        self._execution_log.extend(
+            [PipelineStep(**s) if isinstance(s, dict) else s
+             for s in sub_result.execution_log]
+        )
+
+        return sub_result
 
     def get_execution_log(self) -> list[dict[str, Any]]:
         """Get the full execution log."""

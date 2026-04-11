@@ -124,21 +124,17 @@ class Interpreter:
         # --- Arithmetic ---
         if op in ("add", "sub", "mul", "div", "mod"):
             return self._eval_arithmetic(op, expr)
-
         # --- Comparison ---
         if op in ("eq", "neq", "lt", "lte", "gt", "gte"):
             return self._eval_comparison(op, expr)
-
         # --- Logic ---
         if op in ("and", "or", "not", "xor"):
             return self._eval_logic(op, expr)
-
         # --- String ---
         if op == "concat":
             return self._eval_concat(expr)
         if op == "length":
             return self._eval_length(expr)
-
         # --- Collection ---
         if op == "at":
             return self._eval_at(expr)
@@ -146,7 +142,6 @@ class Interpreter:
             return self._eval_collect(expr)
         if op == "reduce":
             return self._eval_reduce(expr)
-
         # --- Control flow ---
         if op == "seq":
             return self._eval_seq(expr)
@@ -162,7 +157,6 @@ class Interpreter:
             return self._eval_yield(expr)
         if op == "await":
             return self._eval_await(expr)
-
         # --- Variable bindings ---
         if op == "let":
             return self._eval_let(expr)
@@ -170,11 +164,9 @@ class Interpreter:
             return self._eval_get(expr)
         if op == "set":
             return self._eval_set(expr)
-
         # --- Data ---
         if op == "struct":
             return self._eval_struct(expr)
-
         # --- Agent communication ---
         if op == "tell":
             return self._eval_tell(expr)
@@ -184,7 +176,6 @@ class Interpreter:
             return self._eval_delegate(expr)
         if op == "broadcast":
             return self._eval_broadcast(expr)
-
         # --- Agent operations ---
         if op == "branch":
             return self._eval_branch(expr)
@@ -194,7 +185,6 @@ class Interpreter:
             return self._eval_merge(expr)
         if op == "co_iterate":
             return self._eval_co_iterate(expr)
-
         # --- Signals & trust ---
         if op == "signal":
             return self._eval_signal(expr)
@@ -202,22 +192,12 @@ class Interpreter:
             return self._eval_trust(expr)
         if op == "confidence":
             return self._eval_confidence_op(expr)
-
         # --- Literals / pass-through ---
         if op == "literal":
-            return Result(
-                value=expr.get("value"),
-                confidence=self._scope_confidence,
-                source="literal",
-                agent=self.agent_id,
-            )
-
+            return self._eval_literal(expr)
         # --- eval wrapper ---
         if op == "eval":
-            inner = expr.get("expr", {})
-            if isinstance(inner, dict):
-                return self.evaluate(Expression.from_dict(inner))
-            return Result(value=inner, confidence=self._scope_confidence, source="eval")
+            return self._eval_wrapper(expr)
 
         # Unknown opcode
         return Result(
@@ -228,6 +208,22 @@ class Interpreter:
             error=f"Unknown opcode: {op}",
         )
 
+    def _eval_literal(self, expr: Expression) -> Result:
+        """Evaluate a literal expression."""
+        return Result(
+            value=expr.get("value"),
+            confidence=self._scope_confidence,
+            source="literal",
+            agent=self.agent_id,
+        )
+
+    def _eval_wrapper(self, expr: Expression) -> Result:
+        """Evaluate an eval wrapper expression."""
+        inner = expr.get("expr", {})
+        if isinstance(inner, dict):
+            return self.evaluate(Expression.from_dict(inner))
+        return Result(value=inner, confidence=self._scope_confidence, source="eval")
+
     # ------------------------------------------------------------------
     # Arithmetic
     # ------------------------------------------------------------------
@@ -235,30 +231,47 @@ class Interpreter:
     def _eval_arithmetic(self, op: str, expr: Expression) -> Result:
         args = expr.get("args", [])
         if op == "add" and len(args) == 2:
-            # Also support named operands for language-tagged expressions
-            a_val = args[0] if not isinstance(args[0], dict) else self._try_eval(args[0])
-            b_val = args[1] if not isinstance(args[1], dict) else self._try_eval(args[1])
-            return self._arith_result(a_val + b_val, self._scope_confidence)
+            return self._eval_binary_arith("add", expr)
         if op == "sub" and len(args) == 2:
-            a = _ensure_number(args[0] if not isinstance(args[0], dict) else self._try_eval(args[0]))
-            b = _ensure_number(args[1] if not isinstance(args[1], dict) else self._try_eval(args[1]))
-            return self._arith_result(a - b, self._scope_confidence)
+            return self._eval_binary_arith("sub", expr)
         if op == "mul" and len(args) == 2:
-            a = _ensure_number(args[0] if not isinstance(args[0], dict) else self._try_eval(args[0]))
-            b = _ensure_number(args[1] if not isinstance(args[1], dict) else self._try_eval(args[1]))
-            return self._arith_result(a * b, self._scope_confidence)
+            return self._eval_binary_arith("mul", expr)
         if op == "div" and len(args) == 2:
-            a = _ensure_number(args[0] if not isinstance(args[0], dict) else self._try_eval(args[0]))
-            b = _ensure_number(args[1] if not isinstance(args[1], dict) else self._try_eval(args[1]))
-            if b == 0:
-                return Result(value=None, confidence=0.0, source="div", agent=self.agent_id, error="Division by zero")
-            return self._arith_result(a / b, self._scope_confidence)
+            return self._eval_div(expr)
         if op == "mod" and len(args) == 2:
-            a = _ensure_number(args[0] if not isinstance(args[0], dict) else self._try_eval(args[0]))
-            b = _ensure_number(args[1] if not isinstance(args[1], dict) else self._try_eval(args[1]))
-            return self._arith_result(a % b, self._scope_confidence)
+            return self._eval_binary_arith("mod", expr)
 
-        # n-ary add/sub/mul
+        return self._eval_nary_arith(op, expr)
+
+    def _eval_binary_arith(self, op: str, expr: Expression) -> Result:
+        """Evaluate a binary arithmetic operation."""
+        args = expr.get("args", [])
+        a_val = self._try_eval(args[0]) if not isinstance(args[0], dict) else self._try_eval(args[0])
+        b_val = self._try_eval(args[1]) if not isinstance(args[1], dict) else self._try_eval(args[1])
+        if op == "add":
+            return self._arith_result(a_val + b_val, self._scope_confidence)
+        a = _ensure_number(a_val)
+        b = _ensure_number(b_val)
+        if op == "sub":
+            return self._arith_result(a - b, self._scope_confidence)
+        if op == "mul":
+            return self._arith_result(a * b, self._scope_confidence)
+        if op == "mod":
+            return self._arith_result(a % b, self._scope_confidence)
+        return self._arith_result(0, self._scope_confidence)
+
+    def _eval_div(self, expr: Expression) -> Result:
+        """Evaluate division, handling division by zero."""
+        args = expr.get("args", [])
+        a = _ensure_number(args[0] if not isinstance(args[0], dict) else self._try_eval(args[0]))
+        b = _ensure_number(args[1] if not isinstance(args[1], dict) else self._try_eval(args[1]))
+        if b == 0:
+            return Result(value=None, confidence=0.0, source="div", agent=self.agent_id, error="Division by zero")
+        return self._arith_result(a / b, self._scope_confidence)
+
+    def _eval_nary_arith(self, op: str, expr: Expression) -> Result:
+        """Evaluate n-ary add or multiply."""
+        args = expr.get("args", [])
         values = []
         min_conf = self._scope_confidence
         for a in args:
@@ -275,7 +288,6 @@ class Interpreter:
             for v in values:
                 result *= v
             return self._arith_result(result, min_conf)
-
         return Result(
             value=None, confidence=0.0, source=f"arith:{op}", agent=self.agent_id,
             error=f"Cannot evaluate {op} with args {args}",
@@ -673,32 +685,11 @@ class Interpreter:
         branches_raw = expr.get("branches", [])
         merge_raw = expr.get("merge", {})
 
-        # Parse branches
-        branches: list[BranchDef] = []
-        for b in branches_raw:
-            if isinstance(b, BranchDef):
-                branches.append(b)
-            elif isinstance(b, dict):
-                branches.append(BranchDef.from_dict(b))
-
-        merge_policy = MergePolicy.from_dict(merge_raw) if isinstance(merge_raw, dict) else MergePolicy()
-
-        # Register with branch manager
+        branches = self._parse_branch_defs(branches_raw)
+        merge_policy = self._parse_merge_policy(merge_raw)
         bp = self.branch_manager.create_branch_point(branch_id, branches, merge_policy)
 
-        # Execute each branch in sequence (simulated parallelism)
-        branch_results: list[tuple[str, Result]] = []
-        for branch_def in bp.branches:
-            # Fork state for this branch
-            saved_state = dict(self.state)
-            try:
-                result = self._eval_body(branch_def.body)
-                branch_results.append((branch_def.label, result))
-            finally:
-                # Restore state (branches don't mutate parent state directly)
-                self.state = saved_state
-
-        # Merge results
+        branch_results = self._execute_branches(bp)
         merged = self.branch_manager.merge(branch_id, branch_results)
 
         return Result(
@@ -710,6 +701,35 @@ class Interpreter:
             children=[r for _, r in branch_results],
             meta={"branches_run": len(branch_results), "merge_strategy": merge_policy.strategy},
         )
+
+    def _parse_branch_defs(self, branches_raw: list[Any]) -> list[BranchDef]:
+        """Parse raw branch definitions into BranchDef objects."""
+        branches: list[BranchDef] = []
+        for b in branches_raw:
+            if isinstance(b, BranchDef):
+                branches.append(b)
+            elif isinstance(b, dict):
+                branches.append(BranchDef.from_dict(b))
+        return branches
+
+    def _parse_merge_policy(self, merge_raw: Any) -> MergePolicy:
+        """Parse merge policy from raw expression data."""
+        if isinstance(merge_raw, dict):
+            return MergePolicy.from_dict(merge_raw)
+        return MergePolicy()
+
+    def _execute_branches(self, bp) -> list[tuple[str, Result]]:
+        """Execute each branch with forked state, returning results."""
+        branch_results: list[tuple[str, Result]] = []
+        for branch_def in bp.branches:
+            saved_state = dict(self.state)
+            try:
+                result = self._eval_body(branch_def.body)
+                branch_results.append((branch_def.label, result))
+            finally:
+                # Restore state (branches don't mutate parent state directly)
+                self.state = saved_state
+        return branch_results
 
     # ------------------------------------------------------------------
     # Agent operations — Forking

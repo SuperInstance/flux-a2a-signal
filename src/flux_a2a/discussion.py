@@ -495,10 +495,23 @@ class DebateStrategy(DiscussionStrategy):
         is_done, outcome = self.check_completion()
         self.is_complete = True
 
-        decision = None
-        confidence = 0.0
-        reasoning = ""
+        decision, confidence, reasoning = self._build_debate_outcome(outcome)
 
+        return DiscussionResult(
+            discussion_id=self.discussion_id,
+            format="debate",
+            outcome=outcome.value,
+            decision=decision,
+            confidence=confidence,
+            turns=[t.to_dict() for t in self.turns],
+            positions=[p.to_dict() for p in self.get_positions()],
+            reasoning=reasoning,
+        )
+
+    def _build_debate_outcome(
+        self, outcome: DiscussionOutcome,
+    ) -> tuple[Any, float, str]:
+        """Build decision, confidence, and reasoning for debate outcome."""
         if outcome == DiscussionOutcome.CONSENSUS and self.synthesis_candidates:
             decision = {
                 "type": "synthesis",
@@ -533,16 +546,7 @@ class DebateStrategy(DiscussionStrategy):
             confidence = _safe_mean([t.confidence for t in self.turns])
             reasoning = f"No agreement after {self.current_round} rounds."
 
-        return DiscussionResult(
-            discussion_id=self.discussion_id,
-            format="debate",
-            outcome=outcome.value,
-            decision=decision,
-            confidence=confidence,
-            turns=[t.to_dict() for t in self.turns],
-            positions=[p.to_dict() for p in self.get_positions()],
-            reasoning=reasoning,
-        )
+        return decision, confidence, reasoning
 
 
 # ===========================================================================
@@ -649,25 +653,7 @@ class BrainstormStrategy(DiscussionStrategy):
         self.is_complete = True
         is_done, outcome = self.check_completion()
 
-        # Score each idea
-        scored_ideas: list[dict[str, Any]] = []
-        for idea in self.ideas:
-            evals = self.evaluations.get(idea["id"], [])
-            if evals:
-                avg_score = _safe_mean([e["score"] for e in evals])
-                avg_conf = _safe_mean([e["confidence"] for e in evals])
-            else:
-                avg_score = idea["confidence"]
-                avg_conf = idea["confidence"]
-            scored_ideas.append({
-                **idea,
-                "avg_score": avg_score,
-                "eval_count": len(evals),
-                "composite_score": avg_score * avg_conf,
-            })
-
-        scored_ideas.sort(key=lambda x: x["composite_score"], reverse=True)
-
+        scored_ideas = self._score_brainstorm_ideas()
         best = scored_ideas[0] if scored_ideas else None
         confidence = best["composite_score"] if best else 0.0
         reasoning = (
@@ -691,6 +677,27 @@ class BrainstormStrategy(DiscussionStrategy):
             positions=[p.to_dict() for p in self.get_positions()],
             reasoning=reasoning,
         )
+
+    def _score_brainstorm_ideas(self) -> list[dict[str, Any]]:
+        """Score and rank brainstorm ideas by composite score."""
+        scored_ideas: list[dict[str, Any]] = []
+        for idea in self.ideas:
+            evals = self.evaluations.get(idea["id"], [])
+            if evals:
+                avg_score = _safe_mean([e["score"] for e in evals])
+                avg_conf = _safe_mean([e["confidence"] for e in evals])
+            else:
+                avg_score = idea["confidence"]
+                avg_conf = idea["confidence"]
+            scored_ideas.append({
+                **idea,
+                "avg_score": avg_score,
+                "eval_count": len(evals),
+                "composite_score": avg_score * avg_conf,
+            })
+
+        scored_ideas.sort(key=lambda x: x["composite_score"], reverse=True)
+        return scored_ideas
 
 
 # ===========================================================================
@@ -799,7 +806,23 @@ class ReviewStrategy(DiscussionStrategy):
         self.is_complete = True
         is_done, outcome = self.check_completion()
 
-        # Aggregate per-criterion scores
+        aggregated = self._aggregate_review_criteria()
+        overall = self._compute_review_overall(aggregated)
+        passing = all(a["passing"] for a in aggregated) if aggregated else False
+
+        return DiscussionResult(
+            discussion_id=self.discussion_id,
+            format="review",
+            outcome=outcome.value,
+            decision=self._build_review_decision(aggregated, overall, passing),
+            confidence=overall,
+            turns=[t.to_dict() for t in self.turns],
+            positions=[p.to_dict() for p in self.get_positions()],
+            reasoning=self._build_review_reasoning(aggregated, overall, passing),
+        )
+
+    def _aggregate_review_criteria(self) -> list[dict[str, Any]]:
+        """Aggregate per-criterion review scores."""
         criterion_scores: dict[str, list[float]] = {}
         for criterion in self.checklist:
             criterion_scores[criterion.name] = []
@@ -825,38 +848,48 @@ class ReviewStrategy(DiscussionStrategy):
                     "passing": _safe_mean(scores) >= 0.6,
                 })
 
-        overall_scores = [a["avg_score"] for a in aggregated if a["reviewer_count"] > 0]
-        overall = _safe_mean(overall_scores) if overall_scores else 0.0
-        passing = all(a["passing"] for a in aggregated) if aggregated else False
+        return aggregated
 
-        return DiscussionResult(
-            discussion_id=self.discussion_id,
-            format="review",
-            outcome=outcome.value,
-            decision={
-                "type": "review_result",
-                "overall_score": overall,
-                "passing": passing,
-                "criteria": aggregated,
-                "strengths": [a["name"] for a in aggregated if a["avg_score"] >= 0.8],
-                "weaknesses": [a["name"] for a in aggregated if a["avg_score"] < 0.6],
-                "suggestions": [
-                    r.get("suggestion", "")
-                    for revs in self.review_results.values()
-                    for r in revs
-                    if r.get("suggestion")
-                ],
-            },
-            confidence=overall,
-            turns=[t.to_dict() for t in self.turns],
-            positions=[p.to_dict() for p in self.get_positions()],
-            reasoning=(
-                f"Review completed with {len(self.review_results)} reviewers. "
-                f"Overall score: {overall:.2f}. "
-                f"{'PASS' if passing else 'FAIL'} — "
-                f"Strengths: {len([a for a in aggregated if a['avg_score'] >= 0.8])}, "
-                f"Weaknesses: {len([a for a in aggregated if a['avg_score'] < 0.6])}."
-            ),
+    def _compute_review_overall(self, aggregated: list[dict[str, Any]]) -> float:
+        """Compute overall review score from aggregated criteria."""
+        overall_scores = [a["avg_score"] for a in aggregated if a["reviewer_count"] > 0]
+        return _safe_mean(overall_scores) if overall_scores else 0.0
+
+    def _build_review_decision(
+        self,
+        aggregated: list[dict[str, Any]],
+        overall: float,
+        passing: bool,
+    ) -> dict[str, Any]:
+        """Build the decision dict for a review result."""
+        return {
+            "type": "review_result",
+            "overall_score": overall,
+            "passing": passing,
+            "criteria": aggregated,
+            "strengths": [a["name"] for a in aggregated if a["avg_score"] >= 0.8],
+            "weaknesses": [a["name"] for a in aggregated if a["avg_score"] < 0.6],
+            "suggestions": [
+                r.get("suggestion", "")
+                for revs in self.review_results.values()
+                for r in revs
+                if r.get("suggestion")
+            ],
+        }
+
+    def _build_review_reasoning(
+        self,
+        aggregated: list[dict[str, Any]],
+        overall: float,
+        passing: bool,
+    ) -> str:
+        """Build reasoning string for review result."""
+        return (
+            f"Review completed with {len(self.review_results)} reviewers. "
+            f"Overall score: {overall:.2f}. "
+            f"{'PASS' if passing else 'FAIL'} — "
+            f"Strengths: {len([a for a in aggregated if a['avg_score'] >= 0.8])}, "
+            f"Weaknesses: {len([a for a in aggregated if a['avg_score'] < 0.6])}."
         )
 
 
@@ -904,85 +937,100 @@ class NegotiationStrategy(DiscussionStrategy):
             initial.append(turn)
             self.add_turn(turn)
 
-            # Initialize agent position and utility tracking
-            self._positions[agent_id] = AgentPosition(
-                agent_id=agent_id,
-                confidence=0.5,
-                label=p.get("stance", "negotiator"),
-                priority=p.get("priorities", []),
-            )
-            self.agent_utilities[agent_id] = [0.5]  # Start at neutral utility
-
-            # Register utility function (default: linear combination of priorities)
-            priorities = p.get("priorities", [1.0])
-            weight = p.get("weight", 1.0)
-
-            def make_utility(prios: list[float], w: float) -> Callable:
-                def utility(proposal_vector: list[float]) -> float:
-                    if not prios or not proposal_vector:
-                        return 0.5
-                    min_len = min(len(prios), len(proposal_vector))
-                    score = sum(prios[i] * proposal_vector[i] for i in range(min_len))
-                    max_possible = sum(abs(p) for p in prios[:min_len]) or 1.0
-                    return _clamp(score / max_possible) * w
-                return utility
-
-            self.utility_functions[agent_id] = make_utility(priorities, weight)
+            self._init_negotiation_agent(agent_id, p)
 
         self.current_round = 1
         return initial
+
+    def _init_negotiation_agent(self, agent_id: str, p: dict[str, Any]) -> None:
+        """Initialize position, utility tracking, and utility function for an agent."""
+        # Initialize agent position and utility tracking
+        self._positions[agent_id] = AgentPosition(
+            agent_id=agent_id,
+            confidence=0.5,
+            label=p.get("stance", "negotiator"),
+            priority=p.get("priorities", []),
+        )
+        self.agent_utilities[agent_id] = [0.5]  # Start at neutral utility
+
+        # Register utility function (default: linear combination of priorities)
+        priorities = p.get("priorities", [1.0])
+        weight = p.get("weight", 1.0)
+
+        def make_utility(prios: list[float], w: float) -> Callable:
+            def utility(proposal_vector: list[float]) -> float:
+                if not prios or not proposal_vector:
+                    return 0.5
+                min_len = min(len(prios), len(proposal_vector))
+                score = sum(prios[i] * proposal_vector[i] for i in range(min_len))
+                max_possible = sum(abs(p) for p in prios[:min_len]) or 1.0
+                return _clamp(score / max_possible) * w
+            return utility
+
+        self.utility_functions[agent_id] = make_utility(priorities, weight)
 
     def process_turn(self, turn: DiscussionTurn) -> None:
         """Process a negotiation turn."""
         self.add_turn(turn)
 
-        if isinstance(turn.content, dict):
-            ctype = turn.content.get("type", "")
+        if not isinstance(turn.content, dict):
+            return
 
-            if ctype == "proposal":
-                proposal_vector = turn.content.get("proposal_vector", [])
-                self.proposals.append({
-                    "id": f"proposal-{len(self.proposals)}",
-                    "agent_id": turn.agent_id,
-                    "vector": proposal_vector,
-                    "confidence": turn.confidence,
-                    "round": self.current_round,
-                    "description": turn.content.get("description", ""),
-                })
+        ctype = turn.content.get("type", "")
 
-                # Evaluate this proposal against all utility functions
-                utilities = {
-                    aid: self.utility_functions[aid](proposal_vector)
-                    for aid in self.utility_functions
-                }
-                total_utility = sum(utilities.values()) / max(len(utilities), 1)
+        if ctype == "proposal":
+            self._process_negotiation_proposal(turn)
+        elif ctype == "counter":
+            self._process_negotiation_counter(turn)
+        elif ctype == "accept" or ctype == "compromise":
+            self._process_negotiation_accept(turn, ctype)
 
-                # Update agent positions
-                if turn.agent_id in self._positions:
-                    self._positions[turn.agent_id].approach = proposal_vector
-                    self._positions[turn.agent_id].confidence = total_utility
+    def _process_negotiation_proposal(self, turn: DiscussionTurn) -> None:
+        """Process a proposal turn in negotiation."""
+        proposal_vector = turn.content.get("proposal_vector", [])  # type: ignore[union-attr]
+        self.proposals.append({
+            "id": f"proposal-{len(self.proposals)}",
+            "agent_id": turn.agent_id,
+            "vector": proposal_vector,
+            "confidence": turn.confidence,
+            "round": self.current_round,
+            "description": turn.content.get("description", ""),  # type: ignore[union-attr]
+        })
 
-                # Track utilities
-                for aid, util in utilities.items():
-                    if aid in self.agent_utilities:
-                        self.agent_utilities[aid].append(util)
+        # Evaluate this proposal against all utility functions
+        utilities = {
+            aid: self.utility_functions[aid](proposal_vector)
+            for aid in self.utility_functions
+        }
+        total_utility = sum(utilities.values()) / max(len(utilities), 1)
 
-            elif ctype == "counter":
-                counter_to = turn.content.get("counter_to", "")
-                proposal_vector = turn.content.get("proposal_vector", [])
-                self.current_phase = Phase.COUNTER
+        # Update agent positions
+        if turn.agent_id in self._positions:
+            self._positions[turn.agent_id].approach = proposal_vector
+            self._positions[turn.agent_id].confidence = total_utility
 
-                if turn.agent_id in self._positions:
-                    self._positions[turn.agent_id].approach = proposal_vector
+        # Track utilities
+        for aid, util in utilities.items():
+            if aid in self.agent_utilities:
+                self.agent_utilities[aid].append(util)
 
-            elif ctype == "accept" or ctype == "compromise":
-                self.compromises.append({
-                    "agent_id": turn.agent_id,
-                    "type": ctype,
-                    "accepted_proposal": turn.content.get("proposal_id", ""),
-                    "confidence": turn.confidence,
-                    "round": self.current_round,
-                })
+    def _process_negotiation_counter(self, turn: DiscussionTurn) -> None:
+        """Process a counter-proposal turn in negotiation."""
+        proposal_vector = turn.content.get("proposal_vector", [])  # type: ignore[union-attr]
+        self.current_phase = Phase.COUNTER
+
+        if turn.agent_id in self._positions:
+            self._positions[turn.agent_id].approach = proposal_vector
+
+    def _process_negotiation_accept(self, turn: DiscussionTurn, ctype: str) -> None:
+        """Process an accept/compromise turn in negotiation."""
+        self.compromises.append({
+            "agent_id": turn.agent_id,
+            "type": ctype,
+            "accepted_proposal": turn.content.get("proposal_id", ""),  # type: ignore[union-attr]
+            "confidence": turn.confidence,
+            "round": self.current_round,
+        })
 
     def check_completion(self) -> tuple[bool, DiscussionOutcome]:
         """Check if negotiation has reached compromise."""
@@ -1018,24 +1066,8 @@ class NegotiationStrategy(DiscussionStrategy):
         self.is_complete = True
         is_done, outcome = self.check_completion()
 
-        # Find the proposal with highest total utility
-        best_proposal = None
-        best_total_utility = -1.0
-        for proposal in self.proposals:
-            utilities = {
-                aid: self.utility_functions[aid](proposal["vector"])
-                for aid in self.utility_functions
-            }
-            total = sum(utilities.values()) / max(len(utilities), 1)
-            if total > best_total_utility:
-                best_total_utility = total
-                best_proposal = {**proposal, "agent_utilities": utilities, "total_utility": total}
-
-        # Calculate min utility (worst-off agent) for fairness
-        min_utility = 0.0
-        if best_proposal and "agent_utilities" in best_proposal:
-            utils = best_proposal["agent_utilities"]
-            min_utility = min(utils.values()) if utils else 0.0
+        best_proposal, best_total_utility = self._find_best_proposal()
+        min_utility = self._compute_min_utility(best_proposal)
 
         return DiscussionResult(
             discussion_id=self.discussion_id,
@@ -1059,6 +1091,31 @@ class NegotiationStrategy(DiscussionStrategy):
                 f"Outcome: {outcome.value}."
             ),
         )
+
+    def _find_best_proposal(
+        self,
+    ) -> tuple[Optional[dict[str, Any]], float]:
+        """Find the proposal with highest total utility."""
+        best_proposal = None
+        best_total_utility = -1.0
+        for proposal in self.proposals:
+            utilities = {
+                aid: self.utility_functions[aid](proposal["vector"])
+                for aid in self.utility_functions
+            }
+            total = sum(utilities.values()) / max(len(utilities), 1)
+            if total > best_total_utility:
+                best_total_utility = total
+                best_proposal = {**proposal, "agent_utilities": utilities, "total_utility": total}
+
+        return best_proposal, best_total_utility
+
+    def _compute_min_utility(self, best_proposal: Optional[dict[str, Any]]) -> float:
+        """Calculate min utility (worst-off agent) for fairness."""
+        if best_proposal and "agent_utilities" in best_proposal:
+            utils = best_proposal["agent_utilities"]
+            return min(utils.values()) if utils else 0.0
+        return 0.0
 
 
 # ===========================================================================
@@ -1191,32 +1248,7 @@ class PeerReviewStrategy(DiscussionStrategy):
         self.is_complete = True
         is_done, outcome = self.check_completion()
 
-        # Aggregate scores per criterion
-        criterion_agg: dict[str, list[float]] = {}
-        for review in self.independent_reviews.values():
-            for cname, score in review.get("scores", {}).items():
-                if cname not in criterion_agg:
-                    criterion_agg[cname] = []
-                criterion_agg[cname].append(float(score))
-
-        aggregated_criteria = []
-        for criterion in self.rubric:
-            scores = criterion_agg.get(criterion.name, [])
-            if scores:
-                aggregated_criteria.append({
-                    "name": criterion.name,
-                    "weight": criterion.weight,
-                    "avg_score": _safe_mean(scores),
-                    "std_dev": (
-                        (sum((s - _safe_mean(scores)) ** 2 for s in scores) / len(scores)) ** 0.5
-                        if len(scores) > 1 else 0.0
-                    ),
-                    "reviewer_count": len(scores),
-                    "agreement": 1.0 - min(1.0, (
-                        (max(scores) - min(scores)) if len(scores) > 1 else 0.0
-                    )),
-                })
-
+        aggregated_criteria = self._aggregate_peer_review_criteria()
         overall = _safe_mean([a["avg_score"] for a in aggregated_criteria]) if aggregated_criteria else 0.0
         recommendations = [r["recommendation"] for r in self.independent_reviews.values()]
 
@@ -1244,6 +1276,35 @@ class PeerReviewStrategy(DiscussionStrategy):
                 f"Outcome: {outcome.value}."
             ),
         )
+
+    def _aggregate_peer_review_criteria(self) -> list[dict[str, Any]]:
+        """Aggregate scores per criterion across independent reviews."""
+        criterion_agg: dict[str, list[float]] = {}
+        for review in self.independent_reviews.values():
+            for cname, score in review.get("scores", {}).items():
+                if cname not in criterion_agg:
+                    criterion_agg[cname] = []
+                criterion_agg[cname].append(float(score))
+
+        aggregated_criteria = []
+        for criterion in self.rubric:
+            scores = criterion_agg.get(criterion.name, [])
+            if scores:
+                aggregated_criteria.append({
+                    "name": criterion.name,
+                    "weight": criterion.weight,
+                    "avg_score": _safe_mean(scores),
+                    "std_dev": (
+                        (sum((s - _safe_mean(scores)) ** 2 for s in scores) / len(scores)) ** 0.5
+                        if len(scores) > 1 else 0.0
+                    ),
+                    "reviewer_count": len(scores),
+                    "agreement": 1.0 - min(1.0, (
+                        (max(scores) - min(scores)) if len(scores) > 1 else 0.0
+                    )),
+                })
+
+        return aggregated_criteria
 
 
 # ===========================================================================

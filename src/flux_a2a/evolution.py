@@ -333,24 +333,28 @@ class EvolutionEngine:
         max_observations: int = 10000,
         min_confidence_for_learning: float = 0.5,
     ) -> None:
-        # Observation storage
+        self._init_storage(max_observations)
+        # Configuration
+        self._hot_threshold = hot_threshold
+        self._min_confidence = min_confidence_for_learning
+        # Counters
+        self._init_counters()
+        self._all_ops_known = self._init_known_ops()
+
+    def _init_storage(self, max_observations: int) -> None:
+        """Initialize observation storage and pattern tracking containers."""
         self._observations: list[NLObservation] = []
         self._max_observations = max_observations
-
         # Pattern tracking
         self._hot_paths: dict[tuple[str, ...], HotPath] = {}
         self._nl_patterns: dict[str, NLPattern] = {}
         self._compiled_patterns: dict[str, CompiledPattern] = {}
-
         # Grammar evolution
         self._grammar_deltas: list[GrammarDelta] = []
         self._adopted_grammar: list[GrammarDelta] = []
 
-        # Configuration
-        self._hot_threshold = hot_threshold
-        self._min_confidence = min_confidence_for_learning
-
-        # Counters
+    def _init_counters(self) -> None:
+        """Initialize engine counters and tracking sets."""
         self._generation = 0
         self._total_programs = 0
         self._total_errors = 0
@@ -358,7 +362,11 @@ class EvolutionEngine:
         self._confidence_history: list[float] = []
         self._ops_used: set[str] = set()
         self._langs_used: dict[str, int] = defaultdict(int)
-        self._all_ops_known: set[str] = {
+
+    @staticmethod
+    def _init_known_ops() -> set[str]:
+        """Return the full set of known opcodes."""
+        return {
             "add", "sub", "mul", "div", "mod", "eq", "neq", "lt", "lte", "gt", "gte",
             "and", "or", "not", "xor", "concat", "length", "at", "collect", "reduce",
             "seq", "if", "loop", "while", "match", "let", "get", "set", "struct",
@@ -397,6 +405,40 @@ class EvolutionEngine:
             Which agent produced this program.
         """
         # Extract op sequence and lang tags
+        op_sequence, lang_tags, raw_forms = self._parse_program_info(program)
+
+        # Create observation
+        program_hash = self._hash_ops(op_sequence)
+        observation = NLObservation(
+            program_hash=program_hash,
+            op_sequence=op_sequence,
+            lang_tags=lang_tags,
+            execution_time_ms=execution_time_ms,
+            result_confidence=result_confidence,
+            variable_types=variable_types or {},
+            branch_decisions=branch_decisions or [],
+            error_occurred=error_occurred,
+            source_agent=source_agent,
+            meta={"raw_forms": raw_forms},
+        )
+
+        # Store observation and update counters
+        self._store_observation(observation, error_occurred, execution_time_ms, result_confidence)
+
+        # Update hot paths
+        self._update_hot_paths(op_sequence, execution_time_ms, result_confidence, lang_tags)
+
+        # Update NL patterns from raw forms
+        for raw in raw_forms:
+            self._update_nl_patterns(raw, op_sequence, result_confidence, lang_tags)
+
+    def _parse_program_info(
+        self, program: Any,
+    ) -> tuple[list[str], list[str], list[str]]:
+        """Extract op_sequence, lang_tags, and raw_forms from a program.
+
+        Also updates _ops_used and _langs_used as a side effect.
+        """
         op_sequence: list[str] = []
         lang_tags: list[str] = []
         raw_forms: list[str] = []
@@ -418,21 +460,16 @@ class EvolutionEngine:
                 if raw:
                     raw_forms.append(raw)
 
-        # Create observation
-        program_hash = self._hash_ops(op_sequence)
-        observation = NLObservation(
-            program_hash=program_hash,
-            op_sequence=op_sequence,
-            lang_tags=lang_tags,
-            execution_time_ms=execution_time_ms,
-            result_confidence=result_confidence,
-            variable_types=variable_types or {},
-            branch_decisions=branch_decisions or [],
-            error_occurred=error_occurred,
-            source_agent=source_agent,
-            meta={"raw_forms": raw_forms},
-        )
+        return op_sequence, lang_tags, raw_forms
 
+    def _store_observation(
+        self,
+        observation: NLObservation,
+        error_occurred: bool,
+        execution_time_ms: float,
+        result_confidence: float,
+    ) -> None:
+        """Store an observation (bounded) and update engine counters."""
         # Store observation (bounded)
         if len(self._observations) >= self._max_observations:
             self._observations.pop(0)
@@ -444,13 +481,6 @@ class EvolutionEngine:
             self._total_errors += 1
         self._execution_times.append(execution_time_ms)
         self._confidence_history.append(result_confidence)
-
-        # Update hot paths
-        self._update_hot_paths(op_sequence, execution_time_ms, result_confidence, lang_tags)
-
-        # Update NL patterns from raw forms
-        for raw in raw_forms:
-            self._update_nl_patterns(raw, op_sequence, result_confidence, lang_tags)
 
     def hot_path(self, min_heat: float = 0.1) -> list[HotPath]:
         """Identify frequently-executed NL patterns, sorted by heat score.
@@ -480,6 +510,19 @@ class EvolutionEngine:
           3. Constant-fold any known values
           4. Emit a fast-path bytecode that matches the pattern fingerprint
         """
+        bytecode, speedup = self._generate_bytecode(pattern)
+
+        compiled = CompiledPattern(
+            pattern_fingerprint=pattern.fingerprint,
+            bytecode=bytecode,
+            optimization_kind=OptimizationKind.HOT_PATH_INLINE.value,
+            speedup_estimate=speedup,
+        )
+        self._compiled_patterns[pattern.fingerprint] = compiled
+        return compiled
+
+    def _generate_bytecode(self, pattern: NLPattern) -> tuple[list[list[Any]], float]:
+        """Generate specialized bytecode and estimated speedup for a pattern."""
         bytecode: list[list[Any]] = []
 
         # Emit pattern match header
@@ -502,14 +545,7 @@ class EvolutionEngine:
         if pattern.is_idiomatic:
             speedup *= 1.5  # Idiomatic patterns benefit more
 
-        compiled = CompiledPattern(
-            pattern_fingerprint=pattern.fingerprint,
-            bytecode=bytecode,
-            optimization_kind=OptimizationKind.HOT_PATH_INLINE.value,
-            speedup_estimate=speedup,
-        )
-        self._compiled_patterns[pattern.fingerprint] = compiled
-        return compiled
+        return bytecode, speedup
 
     def suggest_optimization(self) -> list[Optimization]:
         """Suggest optimizations based on observed patterns.
@@ -528,6 +564,20 @@ class EvolutionEngine:
         optimizations: list[Optimization] = []
 
         # 1. Hot path inlining
+        self._suggest_hot_path_inlines(optimizations)
+        # 2. Dead pattern elimination
+        self._suggest_dead_pattern_elims(optimizations)
+        # 3. Type specialization & 4. Constant propagation
+        self._suggest_type_specializations(optimizations)
+        # 5. Vocabulary fast paths
+        self._suggest_vocab_fast_paths(optimizations)
+        # 6. Branch fusion
+        self._suggest_branch_fusions(optimizations)
+
+        return sorted(optimizations, key=lambda o: o.confidence * o.estimated_speedup, reverse=True)
+
+    def _suggest_hot_path_inlines(self, optimizations: list[Optimization]) -> None:
+        """Suggest hot path inlining optimizations for frequent sequences."""
         for hp in self.hot_path(min_heat=0.3):
             if hp.frequency >= self._hot_threshold:
                 opt = Optimization(
@@ -548,23 +598,27 @@ class EvolutionEngine:
                 )
                 optimizations.append(opt)
 
-        # 2. Dead pattern elimination
-        if self._total_programs >= 50:
-            used_ops = self._ops_used
-            for op in self._all_ops_known:
-                if op not in used_ops:
-                    opt = Optimization(
-                        kind=OptimizationKind.DEAD_PATTERN_ELIM.value,
-                        target_pattern=op,
-                        description=f"Opcode '{op}' never observed — candidate for removal",
-                        estimated_speedup=1.01,  # Marginal but reduces interpreter size
-                        confidence=0.7,
-                        applies_to=[],
-                        rationale=f"Across {self._total_programs} programs, '{op}' was never used.",
-                    )
-                    optimizations.append(opt)
+    def _suggest_dead_pattern_elims(self, optimizations: list[Optimization]) -> None:
+        """Suggest removal of opcodes that have never been observed."""
+        if self._total_programs < 50:
+            return
+        used_ops = self._ops_used
+        for op in self._all_ops_known:
+            if op not in used_ops:
+                opt = Optimization(
+                    kind=OptimizationKind.DEAD_PATTERN_ELIM.value,
+                    target_pattern=op,
+                    description=f"Opcode '{op}' never observed — candidate for removal",
+                    estimated_speedup=1.01,  # Marginal but reduces interpreter size
+                    confidence=0.7,
+                    applies_to=[],
+                    rationale=f"Across {self._total_programs} programs, '{op}' was never used.",
+                )
+                optimizations.append(opt)
 
-        # 3. Type specialization
+    def _suggest_type_specializations(self, optimizations: list[Optimization]) -> None:
+        """Suggest type specialization for variables with stable types."""
+        # Type specialization
         var_type_counter: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
         for obs in self._observations:
             for var, vtype in obs.variable_types.items():
@@ -593,7 +647,7 @@ class EvolutionEngine:
                     )
                     optimizations.append(opt)
 
-        # 4. Constant propagation
+        # Constant propagation — track stable scalar types for future use
         var_value_counter: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
         for obs in self._observations:
             # We don't track values directly in observations, but we can
@@ -602,7 +656,8 @@ class EvolutionEngine:
                 if obs.variable_types[var] in ("int", "float", "bool", "str"):
                     var_value_counter[var][obs.variable_types[var]] += 1
 
-        # 5. Vocabulary fast paths
+    def _suggest_vocab_fast_paths(self, optimizations: list[Optimization]) -> None:
+        """Suggest fast paths for idiomatic NL patterns."""
         for fp, pattern in self._nl_patterns.items():
             if pattern.frequency >= self._hot_threshold and pattern.is_idiomatic:
                 opt = Optimization(
@@ -622,7 +677,8 @@ class EvolutionEngine:
                 )
                 optimizations.append(opt)
 
-        # 6. Branch fusion: detect branch→synthesize or branch→co_iterate patterns
+    def _suggest_branch_fusions(self, optimizations: list[Optimization]) -> None:
+        """Detect and suggest branch fusion optimizations."""
         branch_synthesize_count = 0
         branch_coiter_count = 0
         branch_reflect_count = 0
@@ -649,8 +705,6 @@ class EvolutionEngine:
                 ),
             ))
 
-        return sorted(optimizations, key=lambda o: o.confidence * o.estimated_speedup, reverse=True)
-
     # ------------------------------------------------------------------
     # Level 2: Grammar Evolution
     # ------------------------------------------------------------------
@@ -676,37 +730,10 @@ class EvolutionEngine:
             if pattern.frequency < min_frequency:
                 continue
 
-            # Score: frequency * confidence * idiomaticity bonus
-            score = pattern.frequency * pattern.confidence_avg
-            if pattern.is_idiomatic:
-                score *= 2.0
-            if len(pattern.resolved_ops) > 2:
-                score *= 1.5  # Multi-op patterns are more valuable as grammar extensions
-
+            score = self._score_pattern(pattern)
             if score > best_score:
                 best_score = score
-                change_type = "idiom" if pattern.is_idiomatic else "macro"
-                if len(pattern.resolved_ops) == 1:
-                    change_type = "syntax_sugar"
-
-                example = pattern.raw_forms[0] if pattern.raw_forms else fp
-
-                delta = GrammarDelta(
-                    change_type=change_type,
-                    name=f"auto_{pattern.lang}_{fp[:12]}",
-                    pattern=example,
-                    expansion=[{"op": op} for op in pattern.resolved_ops],
-                    confidence=min(1.0, score / 100.0),
-                    frequency=pattern.frequency,
-                    languages=[pattern.lang] if pattern.lang else [],
-                    example_programs=pattern.raw_forms[:3],
-                    rationale=(
-                        f"Pattern '{example}' observed {pattern.frequency} times "
-                        f"with avg confidence {pattern.confidence_avg:.2f}. "
-                        f"Proposed as {change_type} for {pattern.lang or 'all languages'}."
-                    ),
-                )
-                best_delta = delta
+                best_delta = self._build_grammar_delta(fp, pattern, score)
 
         if best_delta is not None:
             self._grammar_deltas.append(best_delta)
@@ -717,6 +744,43 @@ class EvolutionEngine:
             pattern="",
             confidence=0.0,
             rationale="No patterns meet the frequency threshold for grammar evolution.",
+        )
+
+    def _score_pattern(self, pattern: NLPattern) -> float:
+        """Score a pattern for grammar evolution candidacy.
+
+        Score: frequency * confidence * idiomaticity bonus.
+        Multi-op patterns get an additional 1.5x bonus.
+        """
+        score = pattern.frequency * pattern.confidence_avg
+        if pattern.is_idiomatic:
+            score *= 2.0
+        if len(pattern.resolved_ops) > 2:
+            score *= 1.5  # Multi-op patterns are more valuable as grammar extensions
+        return score
+
+    def _build_grammar_delta(self, fp: str, pattern: NLPattern, score: float) -> GrammarDelta:
+        """Build a GrammarDelta from a scored pattern."""
+        change_type = "idiom" if pattern.is_idiomatic else "macro"
+        if len(pattern.resolved_ops) == 1:
+            change_type = "syntax_sugar"
+
+        example = pattern.raw_forms[0] if pattern.raw_forms else fp
+
+        return GrammarDelta(
+            change_type=change_type,
+            name=f"auto_{pattern.lang}_{fp[:12]}",
+            pattern=example,
+            expansion=[{"op": op} for op in pattern.resolved_ops],
+            confidence=min(1.0, score / 100.0),
+            frequency=pattern.frequency,
+            languages=[pattern.lang] if pattern.lang else [],
+            example_programs=pattern.raw_forms[:3],
+            rationale=(
+                f"Pattern '{example}' observed {pattern.frequency} times "
+                f"with avg confidence {pattern.confidence_avg:.2f}. "
+                f"Proposed as {change_type} for {pattern.lang or 'all languages'}."
+            ),
         )
 
     # ------------------------------------------------------------------
@@ -736,7 +800,21 @@ class EvolutionEngine:
         patterns, but recognizing that patterns form *paradigms* — coherent
         ways of thinking about computation.
         """
-        # Count 2-grams and 3-grams of ops across all observations
+        _, trigram_counts = self._build_ngram_counts()
+        paradigm_signatures = self._get_paradigm_signatures()
+
+        shifts: list[dict[str, Any]] = []
+        for name, sig in paradigm_signatures.items():
+            shift = self._evaluate_paradigm(name, sig, trigram_counts)
+            if shift:
+                shifts.append(shift)
+
+        return sorted(shifts, key=lambda s: s["emergence_confidence"], reverse=True)
+
+    def _build_ngram_counts(
+        self,
+    ) -> tuple[Counter[tuple[str, str]], Counter[tuple[str, str, str]]]:
+        """Count 2-grams and 3-grams of ops across all observations."""
         bigram_counts: Counter[tuple[str, str]] = Counter()
         trigram_counts: Counter[tuple[str, str, str]] = Counter()
 
@@ -747,8 +825,12 @@ class EvolutionEngine:
             for i in range(len(ops) - 2):
                 trigram_counts[(ops[i], ops[i + 1], ops[i + 2])] += 1
 
-        # Known paradigm signatures
-        paradigm_signatures = {
+        return bigram_counts, trigram_counts
+
+    @staticmethod
+    def _get_paradigm_signatures() -> dict[str, dict[str, Any]]:
+        """Return the known paradigm signatures to detect."""
+        return {
             "collaborative_parallelism": {
                 "required": {"branch", "co_iterate", "synthesize"},
                 "description": "Multi-agent parallel exploration with consensus",
@@ -771,40 +853,47 @@ class EvolutionEngine:
             },
         }
 
-        shifts: list[dict[str, Any]] = []
+    def _evaluate_paradigm(
+        self,
+        name: str,
+        sig: dict[str, Any],
+        trigram_counts: Counter[tuple[str, str, str]],
+    ) -> Optional[dict[str, Any]]:
+        """Evaluate a single paradigm signature for emergence.
 
-        for name, sig in paradigm_signatures.items():
-            required = sig["required"]
-            # Check if all required ops appear together in any trigram
-            # (This is a simplified check — full implementation would use
-            # co-occurrence analysis across programs)
-            co_occurrence_count = 0
-            for obs in self._observations:
-                obs_ops = set(obs.op_sequence)
-                if required.issubset(obs_ops):
-                    co_occurrence_count += 1
+        Returns a shift dict if the paradigm is emerging, None otherwise.
+        """
+        required = sig["required"]
+        # Check if all required ops appear together in any observation
+        # (This is a simplified check — full implementation would use
+        # co-occurrence analysis across programs)
+        co_occurrence_count = 0
+        for obs in self._observations:
+            obs_ops = set(obs.op_sequence)
+            if required.issubset(obs_ops):
+                co_occurrence_count += 1
 
-            if co_occurrence_count >= self._hot_threshold // 2:
-                # Find the strongest trigram
-                best_trigram = None
-                best_count = 0
-                for trigram, count in trigram_counts.most_common(20):
-                    if required.issubset(set(trigram)):
-                        best_trigram = trigram
-                        best_count = count
-                        break
+        if co_occurrence_count < self._hot_threshold // 2:
+            return None
 
-                shifts.append({
-                    "paradigm": name,
-                    "description": sig["description"],
-                    "co_occurrence_count": co_occurrence_count,
-                    "signature_trigram": list(best_trigram) if best_trigram else None,
-                    "trigram_count": best_count,
-                    "emergence_confidence": min(1.0, co_occurrence_count / self._hot_threshold),
-                    "required_ops": list(required),
-                })
+        # Find the strongest trigram
+        best_trigram = None
+        best_count = 0
+        for trigram, count in trigram_counts.most_common(20):
+            if required.issubset(set(trigram)):
+                best_trigram = trigram
+                best_count = count
+                break
 
-        return sorted(shifts, key=lambda s: s["emergence_confidence"], reverse=True)
+        return {
+            "paradigm": name,
+            "description": sig["description"],
+            "co_occurrence_count": co_occurrence_count,
+            "signature_trigram": list(best_trigram) if best_trigram else None,
+            "trigram_count": best_count,
+            "emergence_confidence": min(1.0, co_occurrence_count / self._hot_threshold),
+            "required_ops": list(required),
+        }
 
     # ------------------------------------------------------------------
     # Fitness Measurement
@@ -830,29 +919,9 @@ class EvolutionEngine:
         avg_time = sum(self._execution_times) / len(self._execution_times) if self._execution_times else 0.0
         error_rate = self._total_errors / total
 
-        # Pattern coverage: hot paths with compiled patterns / total hot paths
-        hot_paths = self.hot_path(min_heat=0.1)
-        compiled_count = sum(
-            1 for hp in hot_paths
-            if self._hash_ops(list(hp.sequence)) in self._compiled_patterns
-        )
-        pattern_coverage = compiled_count / max(1, len(hot_paths))
-
-        # Grammar utilization: ops used / ops known
+        pattern_coverage = self._compute_pattern_coverage()
         grammar_util = len(self._ops_used) / len(self._all_ops_known)
-
-        # Language diversity (Shannon entropy of language distribution)
-        lang_counts = list(self._langs_used.values())
-        lang_diversity = 0.0
-        if lang_counts:
-            total_lang = sum(lang_counts)
-            if total_lang > 0:
-                for count in lang_counts:
-                    p = count / total_lang
-                    if p > 0:
-                        lang_diversity -= p * math.log2(p)
-                # Normalize by max possible entropy (assuming 10 languages)
-                lang_diversity = min(1.0, lang_diversity / math.log2(10))
+        lang_diversity = self._compute_lang_diversity()
 
         # Paradigm fitness (from detected shifts)
         paradigm_shifts = self.detect_paradigm_shifts()
@@ -873,6 +942,31 @@ class EvolutionEngine:
             evolution_generation=self._generation,
             paradigm_fitness=paradigm_fitness,
         )
+
+    def _compute_pattern_coverage(self) -> float:
+        """Compute fraction of hot paths that have compiled fast-paths."""
+        hot_paths = self.hot_path(min_heat=0.1)
+        compiled_count = sum(
+            1 for hp in hot_paths
+            if self._hash_ops(list(hp.sequence)) in self._compiled_patterns
+        )
+        return compiled_count / max(1, len(hot_paths))
+
+    def _compute_lang_diversity(self) -> float:
+        """Compute Shannon entropy of language distribution, normalized to [0, 1]."""
+        lang_counts = list(self._langs_used.values())
+        if not lang_counts:
+            return 0.0
+        total_lang = sum(lang_counts)
+        if total_lang <= 0:
+            return 0.0
+        diversity = 0.0
+        for count in lang_counts:
+            p = count / total_lang
+            if p > 0:
+                diversity -= p * math.log2(p)
+        # Normalize by max possible entropy (assuming 10 languages)
+        return min(1.0, diversity / math.log2(10))
 
     def evolve_generation(self) -> dict[str, Any]:
         """Run one generation of evolution: learn, optimize, propose grammar changes.
@@ -1013,22 +1107,43 @@ class EvolutionEngine:
                 lang=lang_tags[0] if lang_tags else "",
             )
         else:
-            pattern = self._nl_patterns[fp]
-            if raw_form not in pattern.raw_forms:
-                pattern.raw_forms.append(raw_form)
-            pattern.frequency += 1
-            # Running average of confidence
-            pattern.confidence_avg = (
-                (pattern.confidence_avg * (pattern.frequency - 1) + confidence)
-                / pattern.frequency
-            )
-            if lang_tags and not pattern.lang:
-                pattern.lang = lang_tags[0]
+            self._merge_nl_pattern(fp, raw_form, confidence, lang_tags)
 
         # Detect idiomatic patterns: NL forms that appear frequently
         # with the same op resolution and are language-specific
         pattern = self._nl_patterns[fp]
-        pattern.is_idiomatic = (
+        pattern.is_idiomatic = self._detect_idiomatic(pattern)
+
+    def _merge_nl_pattern(
+        self,
+        fp: str,
+        raw_form: str,
+        confidence: float,
+        lang_tags: list[str],
+    ) -> None:
+        """Merge a new observation into an existing NL pattern."""
+        pattern = self._nl_patterns[fp]
+        if raw_form not in pattern.raw_forms:
+            pattern.raw_forms.append(raw_form)
+        pattern.frequency += 1
+        # Running average of confidence
+        pattern.confidence_avg = (
+            (pattern.confidence_avg * (pattern.frequency - 1) + confidence)
+            / pattern.frequency
+        )
+        if lang_tags and not pattern.lang:
+            pattern.lang = lang_tags[0]
+
+    @staticmethod
+    def _detect_idiomatic(pattern: NLPattern) -> bool:
+        """Detect if a pattern is language-specific and idiomatic.
+
+        Idiomatic patterns are those that:
+          - Have a non-English, non-empty language tag
+          - Have appeared at least 3 times
+          - Have at least 2 distinct raw forms
+        """
+        return (
             bool(pattern.lang)
             and pattern.lang != "eng"
             and pattern.frequency >= 3

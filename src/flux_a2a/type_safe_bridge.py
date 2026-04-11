@@ -98,6 +98,25 @@ class PreservationDegree(str, Enum):
     DEGRADED = "degraded"
 
 
+# Ordered from strongest to weakest preservation — used for chain worst-case.
+_PRESERVATION_DEGREE_ORDER: List[PreservationDegree] = [
+    PreservationDegree.LOSSLESS,
+    PreservationDegree.NEAR_LOSSLESS,
+    PreservationDegree.PARTIAL,
+    PreservationDegree.LOSSY,
+    PreservationDegree.DEGRADED,
+]
+
+
+def _weaker_preservation(
+    a: PreservationDegree, b: PreservationDegree,
+) -> PreservationDegree:
+    """Return the weaker (worse) preservation degree of *a* and *b*."""
+    return _PRESERVATION_DEGREE_ORDER[
+        max(_PRESERVATION_DEGREE_ORDER.index(a), _PRESERVATION_DEGREE_ORDER.index(b))
+    ]
+
+
 @dataclass(frozen=True, slots=True)
 class TypeEquivalenceSlot:
     """A single slot in a type-equivalence class.
@@ -191,7 +210,7 @@ class TypeAlgebra:
         self._index: Dict[TypeSlot, AlgebraId] = {}
         self._populate()
 
-    # ── Population ───────────────────────────────────────────────
+    # ── Population helpers ───────────────────────────────────────
 
     def _add_class(self, cls: TypeEquivalenceClass) -> None:
         """Register an equivalence class and index its slots."""
@@ -204,11 +223,10 @@ class TypeAlgebra:
         base = _PARADIGM_TO_BASE.get(lang, {}).get(tag, FluxBaseType.VALUE)
         return TypeEquivalenceSlot(language=lang, native_tag=tag, base_type=base)
 
-    def _populate(self) -> None:
-        """Populate all four semantic domains with equivalence classes."""
+    # ── Domain population methods ────────────────────────────────
 
-        # ── Domain 1: Noun Categorization ────────────────────────
-
+    def _populate_nc_agents(self) -> None:
+        """Noun-cat: active agents (person, animal, machine)."""
         # Active/masculine agents
         self._add_class(TypeEquivalenceClass(
             class_id="nc_active_person",
@@ -223,7 +241,6 @@ class TypeAlgebra:
             semantic_domain="noun_cat",
             notes="Agents that initiate actions: 位(人), der, पुंल्लिङ्ग, masculinum",
         ))
-
         # Active/masculine — animals
         self._add_class(TypeEquivalenceClass(
             class_id="nc_active_animal",
@@ -237,6 +254,8 @@ class TypeAlgebra:
             notes="Animals and machines as active agents: 隻, 台",
         ))
 
+    def _populate_nc_containers(self) -> None:
+        """Noun-cat: containers, volumes, and value/neuter shapes."""
         # Container/feminine
         self._add_class(TypeEquivalenceClass(
             class_id="nc_container",
@@ -252,7 +271,6 @@ class TypeAlgebra:
             semantic_domain="noun_cat",
             notes="Containers that hold values: 群, 雙, die, स्त्रीलिङ्ग, femininum",
         ))
-
         # Value/neuter — flat objects
         self._add_class(TypeEquivalenceClass(
             class_id="nc_value_flat",
@@ -269,7 +287,6 @@ class TypeAlgebra:
             semantic_domain="noun_cat",
             notes="Flat/value objects: 張, 條, 顆 → das, नपुंसकलिङ्ग, neutrum",
         ))
-
         # Container — volume
         self._add_class(TypeEquivalenceClass(
             class_id="nc_value_volume",
@@ -282,7 +299,8 @@ class TypeAlgebra:
             notes="Volume containers: 杯, 瓶",
         ))
 
-        # Scope — case systems
+    def _populate_nc_core_cases(self) -> None:
+        """Noun-cat: core case systems (nom, acc, dat, gen)."""
         self._add_class(TypeEquivalenceClass(
             class_id="nc_scope_nominative",
             name="Scope: nominative / prathama / nominativus",
@@ -295,7 +313,6 @@ class TypeAlgebra:
             semantic_domain="noun_cat",
             notes="Subject case across DEU/SAN/LAT: Nominativ, प्रथमा, Nominativus",
         ))
-
         self._add_class(TypeEquivalenceClass(
             class_id="nc_scope_accusative",
             name="Scope: accusative / dvitiya / accusativus",
@@ -308,7 +325,6 @@ class TypeAlgebra:
             semantic_domain="noun_cat",
             notes="Object case: Akkusativ, द्वितीया, Accusativus",
         ))
-
         self._add_class(TypeEquivalenceClass(
             class_id="nc_scope_dative",
             name="Scope: dative / chaturthi / dativus",
@@ -321,7 +337,6 @@ class TypeAlgebra:
             semantic_domain="noun_cat",
             notes="Recipient case: Dativ, चतुर्थी, Dativus",
         ))
-
         self._add_class(TypeEquivalenceClass(
             class_id="nc_scope_genitive",
             name="Scope: genitive / shashthi / genitivus",
@@ -335,6 +350,8 @@ class TypeAlgebra:
             notes="Possessive case: Genitiv, षष्ठी, Genitivus",
         ))
 
+    def _populate_nc_extra_cases(self) -> None:
+        """Noun-cat: extra case systems (instrumental, locative, vocative, generic)."""
         # SAN-only extra cases
         self._add_class(TypeEquivalenceClass(
             class_id="nc_scope_instrumental",
@@ -347,7 +364,6 @@ class TypeAlgebra:
             semantic_domain="noun_cat",
             notes="Instrumental/ablative: तृतीया, Ablativus (partial overlap)",
         ))
-
         self._add_class(TypeEquivalenceClass(
             class_id="nc_scope_locative",
             name="Scope: saptami (locative) — SAN-only",
@@ -358,7 +374,6 @@ class TypeAlgebra:
             semantic_domain="noun_cat",
             notes="Locative case — no direct DEU/LAT equivalent: सप्तमी",
         ))
-
         self._add_class(TypeEquivalenceClass(
             class_id="nc_scope_vocative",
             name="Scope: sambodhana / vocativus — agent invocation",
@@ -370,7 +385,6 @@ class TypeAlgebra:
             semantic_domain="noun_cat",
             notes="Vocative / agent invocation: संबोधन, Vocativus",
         ))
-
         # Generic/contextual classifier
         self._add_class(TypeEquivalenceClass(
             class_id="nc_generic",
@@ -383,41 +397,42 @@ class TypeAlgebra:
             notes="Default classifier 個 — context-dependent, no direct cross-language equivalent",
         ))
 
-        # ── Domain 2: Register / Honorific ──────────────────────
+    def _populate_noun_cat(self) -> None:
+        """Populate Domain 1: Noun Categorization equivalence classes."""
+        self._populate_nc_agents()
+        self._populate_nc_containers()
+        self._populate_nc_core_cases()
+        self._populate_nc_extra_cases()
 
+    def _populate_register_formal(self) -> None:
+        """Register: formal and polite Korean honorific levels."""
         self._add_class(TypeEquivalenceClass(
             class_id="reg_highest_formal",
             name="Highest formal register",
-            slots=frozenset([
-                self._slot("kor", "hasipsioche"),
-            ]),
+            slots=frozenset([self._slot("kor", "hasipsioche")]),
             degree=PreservationDegree.NEAR_LOSSLESS,
             semantic_domain="register",
             notes="Korean formal highest: 하십시오체",
         ))
-
         self._add_class(TypeEquivalenceClass(
             class_id="reg_subject_honorific",
             name="Subject honorification",
-            slots=frozenset([
-                self._slot("kor", "subject_honorific"),
-            ]),
+            slots=frozenset([self._slot("kor", "subject_honorific")]),
             degree=PreservationDegree.NEAR_LOSSLESS,
             semantic_domain="register",
             notes="Korean subject honorific: 주체 높임",
         ))
-
         self._add_class(TypeEquivalenceClass(
             class_id="reg_polite",
             name="Polite register",
-            slots=frozenset([
-                self._slot("kor", "haeyoche"),
-            ]),
+            slots=frozenset([self._slot("kor", "haeyoche")]),
             degree=PreservationDegree.PARTIAL,
             semantic_domain="register",
             notes="Korean polite: 해요체",
         ))
 
+    def _populate_register_informal(self) -> None:
+        """Register: informal levels and speech acts."""
         self._add_class(TypeEquivalenceClass(
             class_id="reg_informal",
             name="Informal / plain register",
@@ -430,20 +445,23 @@ class TypeAlgebra:
             semantic_domain="register",
             notes="Korean informal levels: 해체, 해라체, 해라오체",
         ))
-
         # Speech acts — shared across KOR and WEN
         self._add_class(TypeEquivalenceClass(
             class_id="reg_speech_declarative",
             name="Declarative speech act",
-            slots=frozenset([
-                self._slot("kor", "declarative"),
-            ]),
+            slots=frozenset([self._slot("kor", "declarative")]),
             degree=PreservationDegree.PARTIAL,
             semantic_domain="register",
             notes="Declarative: 평서문",
         ))
 
-        # ── Domain 3: Contextual Scoping ─────────────────────────
+    def _populate_register(self) -> None:
+        """Populate Domain 2: Register / Honorific equivalence classes."""
+        self._populate_register_formal()
+        self._populate_register_informal()
+
+    def _populate_scope(self) -> None:
+        """Populate Domain 3: Contextual Scoping equivalence classes."""
 
         self._add_class(TypeEquivalenceClass(
             class_id="scope_surface",
@@ -482,52 +500,40 @@ class TypeAlgebra:
             notes="ZHO contextual classifiers: 個, 次",
         ))
 
-        # ── Domain 4: Temporal Execution ─────────────────────────
-
+    def _populate_temporal_latin(self) -> None:
+        """Temporal: Latin tense-mode execution classes."""
         self._add_class(TypeEquivalenceClass(
             class_id="temp_present",
             name="Present / active execution",
-            slots=frozenset([
-                self._slot("lat", "praesens"),
-            ]),
+            slots=frozenset([self._slot("lat", "praesens")]),
             degree=PreservationDegree.NEAR_LOSSLESS,
             semantic_domain="temporal",
             notes="Latin present tense: Praesens — active execution loop",
         ))
-
         self._add_class(TypeEquivalenceClass(
             class_id="temp_imperfect",
             name="Imperfect / continuous loop",
-            slots=frozenset([
-                self._slot("lat", "imperfectum"),
-            ]),
+            slots=frozenset([self._slot("lat", "imperfectum")]),
             degree=PreservationDegree.PARTIAL,
             semantic_domain="temporal",
             notes="Latin imperfect: Imperfectum — continuous/repeated execution",
         ))
-
         self._add_class(TypeEquivalenceClass(
             class_id="temp_perfect",
             name="Perfect / completed",
-            slots=frozenset([
-                self._slot("lat", "perfectum"),
-            ]),
+            slots=frozenset([self._slot("lat", "perfectum")]),
             degree=PreservationDegree.NEAR_LOSSLESS,
             semantic_domain="temporal",
             notes="Latin perfect: Perfectum — completed cache write",
         ))
-
         self._add_class(TypeEquivalenceClass(
             class_id="temp_pluperfect",
             name="Pluperfect / rollback point",
-            slots=frozenset([
-                self._slot("lat", "plusquamperfectum"),
-            ]),
+            slots=frozenset([self._slot("lat", "plusquamperfectum")]),
             degree=PreservationDegree.PARTIAL,
             semantic_domain="temporal",
             notes="Latin pluperfect: Plusquamperfectum — past-of-past rollback",
         ))
-
         self._add_class(TypeEquivalenceClass(
             class_id="temp_future",
             name="Future / deferred computation",
@@ -540,6 +546,8 @@ class TypeAlgebra:
             notes="Latin futures: Futurum, Futurum Exactum — deferred/scheduled",
         ))
 
+    def _populate_temporal_wen(self) -> None:
+        """Temporal: WEN military-strategy execution and control structures."""
         # WEN military strategy as temporal execution
         self._add_class(TypeEquivalenceClass(
             class_id="temp_wen_execution",
@@ -554,7 +562,6 @@ class TypeAlgebra:
             semantic_domain="temporal",
             notes="WEN military strategy opcodes: 攻, 守, 進, 退",
         ))
-
         # WEN control structures
         self._add_class(TypeEquivalenceClass(
             class_id="temp_wen_control",
@@ -567,6 +574,18 @@ class TypeAlgebra:
             semantic_domain="temporal",
             notes="WEN control structures: 則 (sequence), 循 (loop)",
         ))
+
+    def _populate_temporal(self) -> None:
+        """Populate Domain 4: Temporal Execution equivalence classes."""
+        self._populate_temporal_latin()
+        self._populate_temporal_wen()
+
+    def _populate(self) -> None:
+        """Populate all four semantic domains with equivalence classes."""
+        self._populate_noun_cat()
+        self._populate_register()
+        self._populate_scope()
+        self._populate_temporal()
 
     # ── Query API ────────────────────────────────────────────────
 
@@ -821,8 +840,6 @@ class BridgeCostMatrix:
         Returns:
             A BridgeCostReport with all cost factors and warnings.
         """
-        warnings: List[BridgeWarning] = []
-
         # Same language → zero cost
         if source == target:
             return BridgeCostReport(
@@ -831,30 +848,14 @@ class BridgeCostMatrix:
                 total_cost=0.0,
             )
 
-        # 1. Structural distance
-        structural = self._structural_distance(source, target)
-
-        # 2. Expressiveness gap
-        expr_gap, expr_warnings = self._expressiveness_gap(source, target)
-        warnings.extend(expr_warnings)
-
-        # 3. Information loss
-        info_loss, info_warnings = self._information_loss(source, target)
-        warnings.extend(info_warnings)
-
-        # 4. Translation ambiguity
-        ambiguity, amb_warnings = self._translation_ambiguity(source, target)
-        warnings.extend(amb_warnings)
-
-        # Combine into total cost
-        total = (
-            structural * 0.25 +
-            expr_gap * 0.30 +
-            info_loss * 0.30 +
-            ambiguity * 0.15
+        structural, expr_gap, info_loss, ambiguity, warnings = (
+            self._gather_cost_factors(source, target)
         )
-        total = min(total, 1.0)
-
+        total = min(
+            structural * 0.25 + expr_gap * 0.30
+            + info_loss * 0.30 + ambiguity * 0.15,
+            1.0,
+        )
         return BridgeCostReport(
             source_lang=source,
             target_lang=target,
@@ -865,6 +866,20 @@ class BridgeCostMatrix:
             total_cost=total,
             warnings=warnings,
         )
+
+    def _gather_cost_factors(
+        self, source: LangTag, target: LangTag,
+    ) -> Tuple[float, float, float, float, List[BridgeWarning]]:
+        """Gather the four cost factors and combined warnings."""
+        warnings: List[BridgeWarning] = []
+        structural = self._structural_distance(source, target)
+        expr_gap, w = self._expressiveness_gap(source, target)
+        warnings.extend(w)
+        info_loss, w = self._information_loss(source, target)
+        warnings.extend(w)
+        ambiguity, w = self._translation_ambiguity(source, target)
+        warnings.extend(w)
+        return structural, expr_gap, info_loss, ambiguity, warnings
 
     def compare(self, a: LangTag, b: LangTag, c: LangTag) -> str:
         """Compare two bridge costs: a→b vs a→c.
@@ -919,6 +934,20 @@ class BridgeCostMatrix:
         gap = no_match / len(source_tags)
         return gap, warnings
 
+    @staticmethod
+    def _degree_to_loss(degree: PreservationDegree) -> float:
+        """Map a PreservationDegree to its information-loss value.
+
+        LOSSLESS → 0.0, DEGRADED → 1.0.
+        """
+        return {
+            PreservationDegree.LOSSLESS: 0.0,
+            PreservationDegree.NEAR_LOSSLESS: 0.1,
+            PreservationDegree.PARTIAL: 0.4,
+            PreservationDegree.LOSSY: 0.7,
+            PreservationDegree.DEGRADED: 1.0,
+        }.get(degree, 0.5)
+
     def _information_loss(
         self, source: LangTag, target: LangTag
     ) -> Tuple[float, List[BridgeWarning]]:
@@ -932,14 +961,7 @@ class BridgeCostMatrix:
             cls = self.algebra.find_class(source, tag)
             if cls and cls.has_language(target):
                 matched += 1
-                # Map preservation degree to loss: LOSSLESS=0, DEGRADED=1
-                degree_loss = {
-                    PreservationDegree.LOSSLESS: 0.0,
-                    PreservationDegree.NEAR_LOSSLESS: 0.1,
-                    PreservationDegree.PARTIAL: 0.4,
-                    PreservationDegree.LOSSY: 0.7,
-                    PreservationDegree.DEGRADED: 1.0,
-                }.get(cls.degree, 0.5)
+                degree_loss = self._degree_to_loss(cls.degree)
                 total_loss += degree_loss
 
                 if cls.degree in (PreservationDegree.LOSSY, PreservationDegree.DEGRADED):
@@ -1142,24 +1164,12 @@ class TypeWitness:
         Returns:
             A new TypeWitness covering the full chain.
         """
-        # Check that the chain is valid
         assert next_witness.source_lang == self.target_lang, (
             f"Chain mismatch: this target={self.target_lang}, "
             f"next source={next_witness.source_lang}"
         )
 
-        # Use the weakest preservation degree
-        degree_order = [
-            PreservationDegree.LOSSLESS,
-            PreservationDegree.NEAR_LOSSLESS,
-            PreservationDegree.PARTIAL,
-            PreservationDegree.LOSSY,
-            PreservationDegree.DEGRADED,
-        ]
-        worst = max(
-            degree_order.index(self.preservation),
-            degree_order.index(next_witness.preservation),
-        )
+        worst_preservation = _weaker_preservation(self.preservation, next_witness.preservation)
 
         chained = TypeWitness(
             source_lang=self.source_lang,
@@ -1169,7 +1179,7 @@ class TypeWitness:
             source_type=self.source_type,
             target_type=next_witness.target_type,
             strategy=f"{self.strategy}→{next_witness.strategy}",
-            preservation=degree_order[worst],
+            preservation=worst_preservation,
             equivalence_class_id=(
                 f"{self.equivalence_class_id}+{next_witness.equivalence_class_id}"
                 or ""
@@ -1231,6 +1241,46 @@ class WitnessGenerator:
     def __init__(self, algebra: Optional[TypeAlgebra] = None) -> None:
         self.algebra = algebra or TypeAlgebra()
 
+    # ── Tag inference ────────────────────────────────────────────
+
+    @staticmethod
+    def _infer_tags(
+        source_type: FluxType,
+        target_type: FluxType,
+        source_tag: Optional[NativeTag],
+        target_tag: Optional[NativeTag],
+    ) -> Tuple[Optional[NativeTag], Optional[NativeTag]]:
+        """Infer native tags from FluxType constraints when not provided."""
+        src_lang = source_type.paradigm_source
+        tgt_lang = target_type.paradigm_source
+        if source_tag is None:
+            for c in source_type.constraints:
+                if c.language == src_lang:
+                    source_tag = str(c.value)
+                    break
+        if target_tag is None:
+            for c in target_type.constraints:
+                if c.language == tgt_lang:
+                    target_tag = str(c.value)
+                    break
+        return source_tag, target_tag
+
+    def _lookup_preservation(
+        self, src_lang: LangTag, source_tag: Optional[NativeTag],
+    ) -> Tuple[Optional[TypeEquivalenceClass], PreservationDegree, str]:
+        """Look up the preservation degree for a source tag."""
+        equiv_cls = None
+        preservation = PreservationDegree.DEGRADED
+        class_id = ""
+        if source_tag:
+            equiv_cls = self.algebra.find_class(src_lang, source_tag)
+            if equiv_cls:
+                class_id = equiv_cls.class_id
+                preservation = equiv_cls.degree
+        return equiv_cls, preservation, class_id
+
+    # ── Main entry point ─────────────────────────────────────────
+
     def generate(
         self,
         source_type: FluxType,
@@ -1254,30 +1304,12 @@ class WitnessGenerator:
         src_lang = source_type.paradigm_source
         tgt_lang = target_type.paradigm_source
 
-        # Infer native tags from constraints
-        if source_tag is None:
-            for c in source_type.constraints:
-                if c.language == src_lang:
-                    source_tag = str(c.value)
-                    break
-        if target_tag is None:
-            for c in target_type.constraints:
-                if c.language == tgt_lang:
-                    target_tag = str(c.value)
-                    break
+        source_tag, target_tag = self._infer_tags(
+            source_type, target_type, source_tag, target_tag,
+        )
 
-        # Look up equivalence class
-        equiv_cls = None
-        preservation = PreservationDegree.DEGRADED
-        class_id = ""
+        equiv_cls, preservation, class_id = self._lookup_preservation(src_lang, source_tag)
 
-        if source_tag:
-            equiv_cls = self.algebra.find_class(src_lang, source_tag)
-            if equiv_cls:
-                class_id = equiv_cls.class_id
-                preservation = equiv_cls.degree
-
-        # Build constraints
         constraints = self._build_constraints(
             source_type, target_type, equiv_cls, src_lang, tgt_lang,
             source_tag, target_tag,
@@ -1298,6 +1330,8 @@ class WitnessGenerator:
         witness.verify()
         return witness
 
+    # ── Constraint building ──────────────────────────────────────
+
     def _build_constraints(
         self,
         source_type: FluxType,
@@ -1310,8 +1344,21 @@ class WitnessGenerator:
     ) -> List[WitnessConstraint]:
         """Build the list of verification constraints."""
         constraints: List[WitnessConstraint] = []
+        self._add_paradigm_constraints(constraints, src_lang, tgt_lang)
+        self._add_base_type_constraints(constraints, source_type, target_type)
+        self._add_equiv_class_constraints(constraints, equiv_cls, src_lang, tgt_lang)
+        self._add_confidence_constraint(constraints, target_type)
+        self._add_preservation_constraint(constraints, source_tag, target_tag, equiv_cls)
+        self._add_existence_constraints(constraints, source_type, target_type)
+        return constraints
 
-        # C1: Source and target paradigms must differ
+    @staticmethod
+    def _add_paradigm_constraints(
+        constraints: List[WitnessConstraint],
+        src_lang: LangTag,
+        tgt_lang: LangTag,
+    ) -> None:
+        """C1: Source and target paradigms must differ."""
         constraints.append(WitnessConstraint(
             name="paradigm_difference",
             expected="different",
@@ -1319,7 +1366,13 @@ class WitnessGenerator:
             satisfied=src_lang != tgt_lang,
         ))
 
-        # C2: Base type must be in the same or adjacent spectrum position
+    @staticmethod
+    def _add_base_type_constraints(
+        constraints: List[WitnessConstraint],
+        source_type: FluxType,
+        target_type: FluxType,
+    ) -> None:
+        """C2: Base type must be in the same or adjacent spectrum position."""
         src_base = source_type.effective_base_type()
         tgt_base = target_type.effective_base_type()
         dist = src_base.spectrum_distance(tgt_base)
@@ -1330,7 +1383,14 @@ class WitnessGenerator:
             satisfied=dist <= 2,  # Allow up to 2 spectrum positions
         ))
 
-        # C3: If equivalence class exists, both languages must be covered
+    @staticmethod
+    def _add_equiv_class_constraints(
+        constraints: List[WitnessConstraint],
+        equiv_cls: Optional[TypeEquivalenceClass],
+        src_lang: LangTag,
+        tgt_lang: LangTag,
+    ) -> None:
+        """C3: If equivalence class exists, both languages must be covered."""
         if equiv_cls:
             constraints.append(WitnessConstraint(
                 name="equivalence_class_covers_source",
@@ -1345,7 +1405,12 @@ class WitnessGenerator:
                 satisfied=equiv_cls.has_language(tgt_lang),
             ))
 
-        # C4: Confidence must not drop below a floor
+    @staticmethod
+    def _add_confidence_constraint(
+        constraints: List[WitnessConstraint],
+        target_type: FluxType,
+    ) -> None:
+        """C4: Confidence must not drop below a floor."""
         confidence_floor = 0.3
         constraints.append(WitnessConstraint(
             name="confidence_floor",
@@ -1354,7 +1419,14 @@ class WitnessGenerator:
             satisfied=target_type.confidence >= confidence_floor,
         ))
 
-        # C5: Preservation degree must not be DEGRADED if both tags exist
+    @staticmethod
+    def _add_preservation_constraint(
+        constraints: List[WitnessConstraint],
+        source_tag: Optional[NativeTag],
+        target_tag: Optional[NativeTag],
+        equiv_cls: Optional[TypeEquivalenceClass],
+    ) -> None:
+        """C5: Preservation degree must not be DEGRADED if both tags exist."""
         if source_tag and target_tag and equiv_cls:
             is_ok = equiv_cls.degree != PreservationDegree.DEGRADED
             constraints.append(WitnessConstraint(
@@ -1364,7 +1436,13 @@ class WitnessGenerator:
                 satisfied=is_ok,
             ))
 
-        # C6: Source and target types must be non-null
+    @staticmethod
+    def _add_existence_constraints(
+        constraints: List[WitnessConstraint],
+        source_type: FluxType,
+        target_type: FluxType,
+    ) -> None:
+        """C6: Source and target types must be non-null."""
         constraints.append(WitnessConstraint(
             name="source_type_exists",
             expected=True,
@@ -1377,8 +1455,6 @@ class WitnessGenerator:
             actual=target_type is not None,
             satisfied=target_type is not None,
         ))
-
-        return constraints
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -1526,6 +1602,158 @@ class TypeSafeBridge:
             target_tag, degree
         )
 
+    # ── Translation helpers ──────────────────────────────────────
+
+    def _resolve_target(
+        self,
+        source: FluxType,
+        src_lang: LangTag,
+        src_tag: Optional[NativeTag],
+        target_lang: LangTag,
+        strategy: Optional[BridgeStrategy],
+    ) -> Tuple[FluxType, PreservationDegree, BridgeStrategy, bool]:
+        """Resolve the target FluxType using algebra, refinement, or fallback.
+
+        Returns:
+            (target_type, preservation, used_strategy, refinement_applied)
+        """
+        # 1. Try TypeAlgebra first for precise mapping
+        algebra_slot = None
+        if src_tag:
+            algebra_slot = self.algebra.translate(src_lang, src_tag, target_lang)
+
+        # 2. Try refinement rules
+        refinement = self._refinements.get((src_lang, src_tag or "", target_lang))
+
+        if algebra_slot:
+            return self._resolve_algebra_target(
+                source, target_lang, algebra_slot, src_lang, src_tag,
+            )
+        if refinement:
+            return self._resolve_refinement_target(
+                source, target_lang, refinement, strategy,
+            )
+        return self._resolve_fallback_target(source, target_lang, strategy)
+
+    def _resolve_algebra_target(
+        self, source: FluxType, target_lang: LangTag,
+        algebra_slot: TypeEquivalenceSlot, src_lang: LangTag,
+        src_tag: Optional[NativeTag],
+    ) -> Tuple[FluxType, PreservationDegree, BridgeStrategy, bool]:
+        """Resolve via TypeAlgebra equivalence class."""
+        target_type = FluxType.from_paradigm(
+            algebra_slot.language,
+            algebra_slot.native_tag,
+            confidence=source.confidence,
+            name=f"{target_lang}:{algebra_slot.native_tag}",
+        )
+        equiv_cls = self.algebra.find_class(src_lang, src_tag or "")
+        preservation = equiv_cls.degree if equiv_cls else PreservationDegree.DEGRADED
+        return target_type, preservation, BridgeStrategy.DIRECT, False
+
+    def _resolve_refinement_target(
+        self, source: FluxType, target_lang: LangTag,
+        refinement: Tuple[NativeTag, PreservationDegree],
+        strategy: Optional[BridgeStrategy],
+    ) -> Tuple[FluxType, PreservationDegree, BridgeStrategy, bool]:
+        """Resolve via an incremental refinement rule."""
+        ref_tag, ref_degree = refinement
+        try:
+            target_type = FluxType.from_paradigm(
+                target_lang, ref_tag,
+                confidence=source.confidence * 0.9,
+                name=f"{target_lang}:{ref_tag}",
+            )
+        except KeyError:
+            target_type = self._fallback_translate(source, target_lang, strategy)
+        return target_type, ref_degree, BridgeStrategy.CONSTRAINT_PRESERVATION, True
+
+    def _resolve_fallback_target(
+        self, source: FluxType, target_lang: LangTag,
+        strategy: Optional[BridgeStrategy],
+    ) -> Tuple[FluxType, PreservationDegree, BridgeStrategy, bool]:
+        """Resolve via the inner TypeBridge fallback."""
+        inner_result = self._inner_bridge.translate(source, target_lang, strategy)
+        return (
+            inner_result.target_type,
+            PreservationDegree.DEGRADED,
+            inner_result.strategy,
+            False,
+        )
+
+    def _assemble_safe_result(
+        self,
+        source: FluxType,
+        target_type: FluxType,
+        used_strategy: BridgeStrategy,
+        preservation: PreservationDegree,
+        refinement_applied: bool,
+        src_tag: Optional[NativeTag],
+        src_lang: LangTag,
+        target_lang: LangTag,
+    ) -> SafeBridgeResult:
+        """Build a SafeBridgeResult with cost, fidelity, and witness."""
+        cost_report = self.cost_matrix.compute(src_lang, target_lang)
+        fid = self._compute_fidelity(preservation)
+        bridge_result = BridgeResult(
+            target_type=target_type,
+            strategy=used_strategy,
+            fidelity=fid,
+            cost=cost_report.total_cost,
+        )
+        tgt_tag = self._infer_tag(target_type)
+        witness = self.witness_gen.generate(
+            source, target_type, used_strategy, src_tag, tgt_tag,
+        )
+        return SafeBridgeResult(
+            bridge_result=bridge_result,
+            witness=witness,
+            cost_report=cost_report,
+            preservation=preservation,
+            refinement_applied=refinement_applied,
+        )
+
+    @staticmethod
+    def _compute_fidelity(preservation: PreservationDegree) -> float:
+        """Map a PreservationDegree to a fidelity score."""
+        if preservation in (
+            PreservationDegree.LOSSLESS, PreservationDegree.NEAR_LOSSLESS
+        ):
+            return 1.0
+        if preservation == PreservationDegree.PARTIAL:
+            return 0.8
+        return 0.6
+
+    @staticmethod
+    def _combine_cost_reports(
+        leg1: BridgeCostReport,
+        leg2: BridgeCostReport,
+        source_lang: LangTag,
+        back_lang: LangTag,
+    ) -> BridgeCostReport:
+        """Combine two cost reports for a round-trip translation."""
+        return BridgeCostReport(
+            source_lang=source_lang,
+            target_lang=back_lang,
+            structural_distance=leg1.structural_distance + leg2.structural_distance,
+            expressiveness_gap=max(
+                leg1.expressiveness_gap,
+                leg2.expressiveness_gap,
+            ),
+            information_loss=max(
+                leg1.information_loss,
+                leg2.information_loss,
+            ),
+            translation_ambiguity=max(
+                leg1.translation_ambiguity,
+                leg2.translation_ambiguity,
+            ),
+            total_cost=leg1.total_cost + leg2.total_cost,
+            warnings=leg1.warnings + leg2.warnings,
+        )
+
+    # ── Public API ───────────────────────────────────────────────
+
     def translate_safe(
         self,
         source: FluxType,
@@ -1551,78 +1779,13 @@ class TypeSafeBridge:
         src_lang = source.paradigm_source
         src_tag = self._infer_tag(source)
 
-        # 1. Try TypeAlgebra first for precise mapping
-        algebra_slot = None
-        if src_tag:
-            algebra_slot = self.algebra.translate(src_lang, src_tag, target_lang)
-
-        # 2. Try refinement rules
-        refinement = self._refinements.get((src_lang, src_tag or "", target_lang))
-
-        # 3. Determine the best approach
-        refinement_applied = False
-
-        if algebra_slot:
-            # Use algebra-based translation
-            target_type = FluxType.from_paradigm(
-                algebra_slot.language,
-                algebra_slot.native_tag,
-                confidence=source.confidence,
-                name=f"{target_lang}:{algebra_slot.native_tag}",
-            )
-            equiv_cls = self.algebra.find_class(src_lang, src_tag or "")
-            preservation = equiv_cls.degree if equiv_cls else PreservationDegree.DEGRADED
-            used_strategy = BridgeStrategy.DIRECT
-
-        elif refinement:
-            # Use refinement rule
-            ref_tag, ref_degree = refinement
-            try:
-                target_type = FluxType.from_paradigm(
-                    target_lang, ref_tag,
-                    confidence=source.confidence * 0.9,
-                    name=f"{target_lang}:{ref_tag}",
-                )
-            except KeyError:
-                target_type = self._fallback_translate(source, target_lang, strategy)
-            preservation = ref_degree
-            used_strategy = BridgeStrategy.CONSTRAINT_PRESERVATION
-            refinement_applied = True
-
-        else:
-            # Fall back to inner TypeBridge
-            inner_result = self._inner_bridge.translate(source, target_lang, strategy)
-            target_type = inner_result.target_type
-            used_strategy = inner_result.strategy
-            preservation = PreservationDegree.DEGRADED
-
-        # 4. Compute cost report
-        cost_report = self.cost_matrix.compute(src_lang, target_lang)
-
-        # 5. Build bridge result
-        fid = 1.0 if preservation in (
-            PreservationDegree.LOSSLESS, PreservationDegree.NEAR_LOSSLESS
-        ) else (0.8 if preservation == PreservationDegree.PARTIAL else 0.6)
-
-        bridge_result = BridgeResult(
-            target_type=target_type,
-            strategy=used_strategy,
-            fidelity=fid,
-            cost=cost_report.total_cost,
+        target_type, preservation, used_strategy, refinement_applied = (
+            self._resolve_target(source, src_lang, src_tag, target_lang, strategy)
         )
 
-        # 6. Generate witness
-        tgt_tag = self._infer_tag(target_type)
-        witness = self.witness_gen.generate(
-            source, target_type, used_strategy, src_tag, tgt_tag,
-        )
-
-        return SafeBridgeResult(
-            bridge_result=bridge_result,
-            witness=witness,
-            cost_report=cost_report,
-            preservation=preservation,
-            refinement_applied=refinement_applied,
+        return self._assemble_safe_result(
+            source, target_type, used_strategy, preservation,
+            refinement_applied, src_tag, src_lang, target_lang,
         )
 
     def translate_round_trip(
@@ -1652,44 +1815,19 @@ class TypeSafeBridge:
         chained_witness = leg1.witness.chain(leg2.witness)
 
         # Build combined cost
-        combined_cost = BridgeCostReport(
-            source_lang=source.paradigm_source,
-            target_lang=back_lang,
-            structural_distance=leg1.cost_report.structural_distance + leg2.cost_report.structural_distance,
-            expressiveness_gap=max(
-                leg1.cost_report.expressiveness_gap,
-                leg2.cost_report.expressiveness_gap,
-            ),
-            information_loss=max(
-                leg1.cost_report.information_loss,
-                leg2.cost_report.information_loss,
-            ),
-            translation_ambiguity=max(
-                leg1.cost_report.translation_ambiguity,
-                leg2.cost_report.translation_ambiguity,
-            ),
-            total_cost=leg1.cost_report.total_cost + leg2.cost_report.total_cost,
-            warnings=leg1.cost_report.warnings + leg2.cost_report.warnings,
+        combined_cost = self._combine_cost_reports(
+            leg1.cost_report, leg2.cost_report,
+            source.paradigm_source, back_lang,
         )
 
         # Worst preservation degree
-        degree_order = [
-            PreservationDegree.LOSSLESS,
-            PreservationDegree.NEAR_LOSSLESS,
-            PreservationDegree.PARTIAL,
-            PreservationDegree.LOSSY,
-            PreservationDegree.DEGRADED,
-        ]
-        worst = max(
-            degree_order.index(leg1.preservation),
-            degree_order.index(leg2.preservation),
-        )
+        worst_pres = _weaker_preservation(leg1.preservation, leg2.preservation)
 
         return SafeBridgeResult(
             bridge_result=leg2.bridge_result,
             witness=chained_witness,
             cost_report=combined_cost,
-            preservation=degree_order[worst],
+            preservation=worst_pres,
         )
 
     def get_bidirectional_map(

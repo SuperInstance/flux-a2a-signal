@@ -524,12 +524,15 @@ class ParadigmProfiler:
             for op in list(op_scores.keys()):
                 op_scores[op] *= ft.confidence
 
-        # Normalize to [0, 1]
-        if op_scores:
-            max_score = max(op_scores.values())
-            if max_score > 0:
-                op_scores = {k: v / max_score for k, v in op_scores.items()}
+        return self._normalize_op_scores(op_scores)
 
+    def _normalize_op_scores(self, op_scores: Dict[str, float]) -> Dict[str, float]:
+        """Normalize operation scores to [0, 1] range."""
+        if not op_scores:
+            return op_scores
+        max_score = max(op_scores.values())
+        if max_score > 0:
+            op_scores = {k: v / max_score for k, v in op_scores.items()}
         return op_scores
 
     def _base_type_to_operation(self, bt: FluxBaseType) -> Optional[str]:
@@ -551,7 +554,13 @@ class ParadigmProfiler:
     ) -> List[Tuple[str, float]]:
         """Map a constraint kind to relevant operations with weights."""
         ops: List[Tuple[str, float]] = []
+        ops.extend(self._classifier_kind_ops(kind))
+        ops.extend(self._scope_behavior_kind_ops(kind))
+        return ops
 
+    def _classifier_kind_ops(self, kind: ConstraintKind) -> List[Tuple[str, float]]:
+        """Map classifier/structural constraint kinds to operations."""
+        ops: List[Tuple[str, float]] = []
         if kind in (ConstraintKind.CLASSIFIER_SHAPE, ConstraintKind.CLASSIFIER_ANIMACY):
             ops.append(("data_classification", 1.0))
             ops.append(("pattern_matching", 0.7))
@@ -568,7 +577,12 @@ class ParadigmProfiler:
         elif kind == ConstraintKind.HONORIFIC_LEVEL:
             ops.append(("access_control", 1.0))
             ops.append(("capability_check", 0.8))
-        elif kind == ConstraintKind.SPEECH_ACT:
+        return ops
+
+    def _scope_behavior_kind_ops(self, kind: ConstraintKind) -> List[Tuple[str, float]]:
+        """Map scope/behavioral constraint kinds to operations."""
+        ops: List[Tuple[str, float]] = []
+        if kind == ConstraintKind.SPEECH_ACT:
             ops.append(("imperative_sequence", 0.7))
         elif kind == ConstraintKind.SCOPE_LEVEL:
             ops.append(("scope_management", 1.0))
@@ -594,7 +608,6 @@ class ParadigmProfiler:
         elif kind == ConstraintKind.EFFECT_SET:
             ops.append(("pure_transform", 0.6))
             ops.append(("mutation", 0.4))
-
         return ops
 
 
@@ -747,31 +760,44 @@ class CrossLanguageOptimizer:
         op_scores = self.profiler.infer_operations(types)
 
         # Analyze distribution of types across paradigms
-        dist = self.analyze_operation_distribution(types)
+        self.analyze_operation_distribution(types)
 
         # Generate segments based on strategy
+        segments = self._select_strategy_segments(types, source_lang, strategy, op_scores)
+        return self._build_optimization_plan(strategy, segments, types, source_lang)
+
+    def _select_strategy_segments(
+        self,
+        types: List[FluxType],
+        source_lang: str,
+        strategy: OptimizationStrategy,
+        op_scores: Dict[str, float],
+    ) -> List[CodeSegment]:
+        """Dispatch to the appropriate strategy implementation."""
         if strategy == OptimizationStrategy.PARADIGM_SPECIALIST:
-            segments = self._strategy_paradigm_specialist(types, op_scores, source_lang)
+            return self._strategy_paradigm_specialist(types, op_scores, source_lang)
         elif strategy == OptimizationStrategy.MINIMUM_BRIDGING:
-            segments = self._strategy_minimum_bridging(types, source_lang)
+            return self._strategy_minimum_bridging(types, source_lang)
         elif strategy == OptimizationStrategy.MAXIMUM_PRESERVATION:
-            segments = self._strategy_maximum_preservation(types, source_lang)
+            return self._strategy_maximum_preservation(types, source_lang)
         elif strategy == OptimizationStrategy.LOAD_BALANCED:
-            segments = self._strategy_load_balanced(types, op_scores, source_lang)
+            return self._strategy_load_balanced(types, op_scores, source_lang)
         else:
-            segments = [CodeSegment(lang=source_lang, types=types,
-                                    rationale="fallback: keep all in source")]
+            return [CodeSegment(lang=source_lang, types=types,
+                                rationale="fallback: keep all in source")]
 
-        # Count bridge calls (transitions between different langs)
+    def _build_optimization_plan(
+        self,
+        strategy: OptimizationStrategy,
+        segments: List[CodeSegment],
+        types: List[FluxType],
+        source_lang: str,
+    ) -> OptimizationPlan:
+        """Assemble a complete OptimizationPlan from strategy results."""
         bridge_calls = self._count_bridge_transitions(segments)
-
-        # Estimate speedup and loss
         speedup = self._estimate_speedup(types, segments, source_lang)
         loss = self._estimate_information_loss(types, segments, source_lang)
-
-        # Generate witnesses
         witnesses = self._generate_witnesses(types, segments, source_lang)
-
         return OptimizationPlan(
             strategy=strategy,
             segments=segments,
@@ -872,10 +898,7 @@ class CrossLanguageOptimizer:
         op_scores = self.profiler.infer_operations(types)
 
         # Find any operations where source is very weak (< 0.2 suitability)
-        weak_ops = []
-        for op, score in op_scores.items():
-            if score > 0.3 and source_profile.suitability(op) < 0.2:
-                weak_ops.append((op, score))
+        weak_ops = self._find_weak_operations(source_profile, op_scores)
 
         if not weak_ops:
             # Source paradigm handles everything well enough
@@ -886,7 +909,32 @@ class CrossLanguageOptimizer:
                          f"(suitability >= 0.2 for all required ops)",
             )]
 
-        # Only offload types that require weak operations
+        source_types, offload_types, offload_lang = self._classify_offload_types(
+            types, weak_ops, source_lang
+        )
+        return self._build_min_bridging_segments(
+            source_lang, source_types, offload_types, offload_lang
+        )
+
+    def _find_weak_operations(
+        self,
+        source_profile: ParadigmProfile,
+        op_scores: Dict[str, float],
+    ) -> List[Tuple[str, float]]:
+        """Find operations where the source paradigm has very low suitability."""
+        weak_ops: List[Tuple[str, float]] = []
+        for op, score in op_scores.items():
+            if score > 0.3 and source_profile.suitability(op) < 0.2:
+                weak_ops.append((op, score))
+        return weak_ops
+
+    def _classify_offload_types(
+        self,
+        types: List[FluxType],
+        weak_ops: List[Tuple[str, float]],
+        source_lang: str,
+    ) -> Tuple[List[FluxType], List[FluxType], str]:
+        """Classify types into source-kept vs. offloaded based on weak operations."""
         source_types: List[FluxType] = []
         offload_types: List[FluxType] = []
         offload_lang: str = source_lang
@@ -910,7 +958,17 @@ class CrossLanguageOptimizer:
             else:
                 source_types.append(ft)
 
-        segments = []
+        return source_types, offload_types, offload_lang
+
+    def _build_min_bridging_segments(
+        self,
+        source_lang: str,
+        source_types: List[FluxType],
+        offload_types: List[FluxType],
+        offload_lang: str,
+    ) -> List[CodeSegment]:
+        """Build CodeSegments for minimum-bridging strategy."""
+        segments: List[CodeSegment] = []
         if source_types:
             segments.append(CodeSegment(
                 lang=source_lang,
@@ -918,7 +976,7 @@ class CrossLanguageOptimizer:
                 rationale="Kept in source paradigm to minimize bridging",
             ))
         if offload_types:
-            best_profile = self.profiler.profile(offload_lang)
+            self.profiler.profile(offload_lang)
             segments.append(CodeSegment(
                 lang=offload_lang,
                 types=offload_types,
@@ -938,38 +996,15 @@ class CrossLanguageOptimizer:
         rationale_map: Dict[str, str] = {}
 
         for ft in types:
-            best_lang = source_lang
-            best_cost = self.cost_matrix.compute(source_lang, source_lang).total_cost
-
-            for lang in SUPPORTED_LANGUAGES:
-                if lang == source_lang:
-                    cost = 0.0
-                else:
-                    report = self.cost_matrix.compute(source_lang, lang)
-                    cost = report.total_cost
-                    # Penalize information_loss more heavily
-                    cost += report.information_loss * 0.5
-
-                if cost < best_cost:
-                    best_cost = cost
-                    best_lang = lang
-
+            best_lang = self._find_best_preservation_lang(ft, source_lang)
             segments_by_lang.setdefault(best_lang, []).append(ft)
 
             if best_lang not in rationale_map:
-                if best_lang == source_lang:
-                    rationale_map[best_lang] = (
-                        "Lowest information loss: keep in source paradigm (zero bridge cost)"
-                    )
-                else:
-                    bridge = self.cost_matrix.compute(source_lang, best_lang)
-                    rationale_map[best_lang] = (
-                        f"Lowest bridge cost from source "
-                        f"(cost={bridge.total_cost:.3f}, "
-                        f"info_loss={bridge.information_loss:.3f})"
-                    )
+                rationale_map[best_lang] = self._preservation_rationale(
+                    best_lang, source_lang
+                )
 
-        segments = []
+        segments: List[CodeSegment] = []
         for lang, lang_types in segments_by_lang.items():
             segments.append(CodeSegment(
                 lang=lang,
@@ -978,6 +1013,41 @@ class CrossLanguageOptimizer:
             ))
         return segments
 
+    def _find_best_preservation_lang(
+        self, ft: FluxType, source_lang: str
+    ) -> str:
+        """Find the paradigm with lowest information-loss cost for a type."""
+        best_lang = source_lang
+        best_cost = self.cost_matrix.compute(source_lang, source_lang).total_cost
+
+        for lang in SUPPORTED_LANGUAGES:
+            if lang == source_lang:
+                cost = 0.0
+            else:
+                report = self.cost_matrix.compute(source_lang, lang)
+                cost = report.total_cost
+                # Penalize information_loss more heavily
+                cost += report.information_loss * 0.5
+
+            if cost < best_cost:
+                best_cost = cost
+                best_lang = lang
+
+        return best_lang
+
+    def _preservation_rationale(self, best_lang: str, source_lang: str) -> str:
+        """Generate rationale string for maximum preservation strategy."""
+        if best_lang == source_lang:
+            return (
+                "Lowest information loss: keep in source paradigm (zero bridge cost)"
+            )
+        bridge = self.cost_matrix.compute(source_lang, best_lang)
+        return (
+            f"Lowest bridge cost from source "
+            f"(cost={bridge.total_cost:.3f}, "
+            f"info_loss={bridge.information_loss:.3f})"
+        )
+
     def _strategy_load_balanced(
         self,
         types: List[FluxType],
@@ -985,13 +1055,29 @@ class CrossLanguageOptimizer:
         source_lang: str,
     ) -> List[CodeSegment]:
         """Distribute types evenly across paradigms that can handle them."""
-        # Score each language for the overall workload
+        lang_scores = self._score_languages_for_balance(op_scores, source_lang)
+        qualified = [(lang, score) for lang, score in lang_scores if score > 0.05]
+
+        if not qualified:
+            return [CodeSegment(lang=source_lang, types=types,
+                                rationale="No qualified paradigms found")]
+
+        # Use at most 3 paradigms for load balancing
+        selected = qualified[:3]
+        return self._round_robin_distribute(types, selected, op_scores, source_lang)
+
+    def _score_languages_for_balance(
+        self,
+        op_scores: Dict[str, float],
+        source_lang: str,
+    ) -> List[Tuple[str, float]]:
+        """Score each language for load-balanced suitability."""
         lang_scores: List[Tuple[str, float]] = []
         for lang in SUPPORTED_LANGUAGES:
             profile = self.profiler.profile(lang)
-            total_suitability = 0.0
-            for op, relevance in op_scores.items():
-                total_suitability += profile.suitability(op) * relevance
+            total_suitability = sum(
+                profile.suitability(op) * rel for op, rel in op_scores.items()
+            )
             # Penalize bridge cost from source
             bridge_cost = self.cost_matrix.compute(source_lang, lang).total_cost
             # Prefer source lang slightly (no bridge needed)
@@ -999,24 +1085,22 @@ class CrossLanguageOptimizer:
                 total_suitability += 0.1
             adjusted_score = total_suitability * (1.0 - bridge_cost * 0.3)
             lang_scores.append((lang, adjusted_score))
-
         lang_scores.sort(key=lambda x: x[1], reverse=True)
+        return lang_scores
 
-        # Select top languages and distribute types round-robin
-        qualified = [(lang, score) for lang, score in lang_scores if score > 0.05]
-        if not qualified:
-            return [CodeSegment(lang=source_lang, types=types,
-                                rationale="No qualified paradigms found")]
-
-        # Use at most 3 paradigms for load balancing
-        selected = qualified[:3]
-
-        # Assign types to paradigms using round-robin weighted by suitability
+    def _round_robin_distribute(
+        self,
+        types: List[FluxType],
+        selected: List[Tuple[str, float]],
+        op_scores: Dict[str, float],
+        source_lang: str,
+    ) -> List[CodeSegment]:
+        """Distribute types round-robin across selected paradigms and build segments."""
+        # Assign types to paradigms using round-robin
         segments_by_lang: Dict[str, List[FluxType]] = {lang: [] for lang, _ in selected}
         rationale_map: Dict[str, str] = {}
 
         for i, ft in enumerate(types):
-            # Round-robin among selected paradigms
             idx = i % len(selected)
             chosen_lang = selected[idx][0]
             segments_by_lang[chosen_lang].append(ft)
@@ -1033,7 +1117,7 @@ class CrossLanguageOptimizer:
                 f"(avg_suitability={avg_suit:.2f}, bridge_cost={bridge.total_cost:.3f})"
             )
 
-        segments = []
+        segments: List[CodeSegment] = []
         for lang in [l for l, _ in selected]:
             if segments_by_lang[lang]:
                 segments.append(CodeSegment(
@@ -1092,22 +1176,13 @@ class CrossLanguageOptimizer:
             return 1.0
 
         op_scores = self.profiler.infer_operations(types)
-        source_profile = self.profiler.profile(source_lang)
-
-        # Estimate baseline time: all in source paradigm
-        baseline_time = 0.0
-        for op, relevance in op_scores.items():
-            lat = source_profile.latency_estimate.get(op, 1.0)
-            baseline_time += lat * relevance * len(types)
+        baseline_time = self._compute_execution_time(op_scores, source_lang, len(types))
 
         # Estimate optimized time
         optimized_time = 0.0
         for seg in segments:
-            seg_profile = self.profiler.profile(seg.lang)
             seg_ops = self.profiler.infer_operations(seg.types)
-            for op, relevance in seg_ops.items():
-                lat = seg_profile.latency_estimate.get(op, 1.0)
-                optimized_time += lat * relevance * len(seg.types)
+            optimized_time += self._compute_execution_time(seg_ops, seg.lang, len(seg.types))
 
         # Add bridge overhead
         bridge_overhead = len(segments) * 0.1  # Each bridge ~10% of a type operation
@@ -1119,6 +1194,20 @@ class CrossLanguageOptimizer:
         speedup = baseline_time / optimized_time
         # Clamp to reasonable range [0.5, 5.0]
         return max(0.5, min(5.0, speedup))
+
+    def _compute_execution_time(
+        self,
+        op_scores: Dict[str, float],
+        lang: str,
+        type_count: int,
+    ) -> float:
+        """Compute estimated execution time for operations in a paradigm."""
+        profile = self.profiler.profile(lang)
+        total_time = 0.0
+        for op, relevance in op_scores.items():
+            lat = profile.latency_estimate.get(op, 1.0)
+            total_time += lat * relevance * type_count
+        return total_time
 
     def _estimate_information_loss(
         self,
@@ -1152,51 +1241,60 @@ class CrossLanguageOptimizer:
         for seg in segments:
             if seg.lang == source_lang:
                 continue
-
             for ft in seg.types:
-                # Find equivalence class if possible
-                source_tag = self._extract_native_tag(ft)
-                equiv_class = None
-                target_tag = ""
-
-                if source_tag:
-                    equiv_class = self.algebra.find_class(source_lang, source_tag)
-                    if equiv_class:
-                        target_slot = equiv_class.get_slot(seg.lang)
-                        if target_slot:
-                            target_tag = target_slot.native_tag
-
-                preservation = PreservationDegree.DEGRADED
-                if equiv_class:
-                    preservation = equiv_class.degree
-
-                witness = TypeWitness(
-                    witness_id=str(uuid.uuid4())[:8],
-                    source_lang=source_lang,
-                    source_tag=source_tag,
-                    target_lang=seg.lang,
-                    target_tag=target_tag,
-                    source_type=ft,
-                    preservation=preservation,
-                    equivalence_class_id=equiv_class.class_id if equiv_class else "",
-                    constraints=[
-                        WitnessConstraint(
-                            name="base_type_preserved",
-                            expected=ft.base_type.name,
-                            actual=ft.base_type.name,
-                            satisfied=True,
-                        ),
-                        WitnessConstraint(
-                            name="paradigm_valid",
-                            expected=seg.lang,
-                            actual=seg.lang,
-                            satisfied=True,
-                        ),
-                    ],
+                witnesses.append(
+                    self._create_bridge_witness(ft, source_lang, seg.lang)
                 )
-                witnesses.append(witness)
 
         return witnesses
+
+    def _create_bridge_witness(
+        self,
+        ft: FluxType,
+        source_lang: str,
+        target_lang: str,
+    ) -> TypeWitness:
+        """Create a TypeWitness for a single cross-paradigm transformation."""
+        # Find equivalence class if possible
+        source_tag = self._extract_native_tag(ft)
+        equiv_class = None
+        target_tag = ""
+
+        if source_tag:
+            equiv_class = self.algebra.find_class(source_lang, source_tag)
+            if equiv_class:
+                target_slot = equiv_class.get_slot(target_lang)
+                if target_slot:
+                    target_tag = target_slot.native_tag
+
+        preservation = PreservationDegree.DEGRADED
+        if equiv_class:
+            preservation = equiv_class.degree
+
+        return TypeWitness(
+            witness_id=str(uuid.uuid4())[:8],
+            source_lang=source_lang,
+            source_tag=source_tag,
+            target_lang=target_lang,
+            target_tag=target_tag,
+            source_type=ft,
+            preservation=preservation,
+            equivalence_class_id=equiv_class.class_id if equiv_class else "",
+            constraints=[
+                WitnessConstraint(
+                    name="base_type_preserved",
+                    expected=ft.base_type.name,
+                    actual=ft.base_type.name,
+                    satisfied=True,
+                ),
+                WitnessConstraint(
+                    name="paradigm_valid",
+                    expected=target_lang,
+                    actual=target_lang,
+                    satisfied=True,
+                ),
+            ],
+        )
 
     def _extract_native_tag(self, ft: FluxType) -> str:
         """Extract the native tag from a FluxType's constraints."""
@@ -1302,7 +1400,28 @@ class BridgeOptimizer:
         if source == target:
             return [source], 0.0
 
-        # Use modified Dijkstra minimizing information_loss instead of total_cost
+        previous, distances = self._dijkstra_by_info_loss(source, target, via)
+
+        # Reconstruct path
+        if distances[target] == float('inf'):
+            # No path found, return direct route
+            report = self.cost_matrix.compute(source, target)
+            return [source, target], report.information_loss
+
+        path = self._reconstruct_path(previous, source, target)
+        return path, distances[target]
+
+    def _dijkstra_by_info_loss(
+        self,
+        source: str,
+        target: str,
+        via: Optional[List[str]],
+    ) -> Tuple[Dict[str, str], Dict[str, float]]:
+        """Run Dijkstra's algorithm minimizing information_loss.
+
+        Returns:
+            Tuple of (previous map, distances map).
+        """
         distances: Dict[str, float] = {lang: float('inf') for lang in SUPPORTED_LANGUAGES}
         distances[source] = 0.0
         previous: Dict[str, str] = {}
@@ -1338,14 +1457,7 @@ class BridgeOptimizer:
                     previous[neighbor] = current
                     heapq.heappush(pq, (new_loss, neighbor))
 
-        # Reconstruct path
-        if distances[target] == float('inf'):
-            # No path found, return direct route
-            report = self.cost_matrix.compute(source, target)
-            return [source, target], report.information_loss
-
-        path = self._reconstruct_path(previous, source, target)
-        return path, distances[target]
+        return previous, distances
 
     def cache_bridge_result(
         self,

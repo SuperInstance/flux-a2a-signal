@@ -494,39 +494,14 @@ class ConsensusDetector:
                 timestamp=_now(),
             )
 
-        # 1. Compute pairwise similarities
-        pairwise: dict[str, float] = {}
-        for i in range(len(positions)):
-            for j in range(i + 1, len(positions)):
-                key = f"{positions[i].agent_id}:{positions[j].agent_id}"
-                sim = positions[i].similarity_to(positions[j], self.similarity_metric)
-                pairwise[key] = sim
-                # Also store reverse for easy lookup
-                rev_key = f"{positions[j].agent_id}:{positions[i].agent_id}"
-                pairwise[rev_key] = sim
-
-        # 2. Compute distance statistics
-        distances: list[float] = [
-            1.0 - sim for sim in pairwise.values()
-        ]
-        mean_dist = _safe_mean(distances) if distances else 1.0
-        min_dist = min(distances) if distances else 1.0
-        max_dist = max(distances) if distances else 1.0
-
-        # 3. Confidence alignment (how similar are confidence levels?)
-        confidences = [p.confidence for p in positions]
-        confidence_alignment = 1.0 - min(1.0, _safe_std(confidences) * 2)
-
-        # 4. Clustering (simple: positions within threshold distance form a cluster)
+        pairwise = self._compute_pairwise_similarities(positions)
+        distance_stats = self._compute_distance_stats(pairwise)
+        confidence_alignment = self._compute_confidence_alignment(positions)
         clusters = self._find_clusters(positions)
         cluster_count = len(clusters)
+        majority_fraction = self._compute_majority_fraction(positions, clusters)
+        agreement_score = _clamp(1.0 - distance_stats["mean"])
 
-        # 5. Majority fraction (fraction of agents in the largest cluster)
-        largest_cluster_size = max(len(c) for c in clusters) if clusters else 0
-        majority_fraction = largest_cluster_size / len(positions)
-
-        # 6. Determine consensus type
-        agreement_score = _clamp(1.0 - mean_dist)
         consensus_type = self._determine_consensus_type(
             positions, agreement_score, majority_fraction, cluster_count, pairwise
         )
@@ -537,9 +512,9 @@ class ConsensusDetector:
             pairwise_similarities=pairwise,
             cluster_count=cluster_count,
             majority_fraction=majority_fraction,
-            mean_distance=mean_dist,
-            min_distance=min_dist,
-            max_distance=max_dist,
+            mean_distance=distance_stats["mean"],
+            min_distance=distance_stats["min"],
+            max_distance=distance_stats["max"],
             confidence_alignment=confidence_alignment,
         )
 
@@ -547,6 +522,44 @@ class ConsensusDetector:
         self.history.add_snapshot(self._round_counter, metrics, positions)
 
         return metrics
+
+    def _compute_pairwise_similarities(
+        self, positions: list[AgentPosition],
+    ) -> dict[str, float]:
+        """Compute pairwise similarity matrix for all position pairs."""
+        pairwise: dict[str, float] = {}
+        for i in range(len(positions)):
+            for j in range(i + 1, len(positions)):
+                key = f"{positions[i].agent_id}:{positions[j].agent_id}"
+                sim = positions[i].similarity_to(positions[j], self.similarity_metric)
+                pairwise[key] = sim
+                # Also store reverse for easy lookup
+                rev_key = f"{positions[j].agent_id}:{positions[i].agent_id}"
+                pairwise[rev_key] = sim
+        return pairwise
+
+    def _compute_distance_stats(self, pairwise: dict[str, float]) -> dict[str, float]:
+        """Compute distance statistics from pairwise similarities."""
+        distances: list[float] = [1.0 - sim for sim in pairwise.values()]
+        return {
+            "mean": _safe_mean(distances) if distances else 1.0,
+            "min": min(distances) if distances else 1.0,
+            "max": max(distances) if distances else 1.0,
+        }
+
+    def _compute_confidence_alignment(self, positions: list[AgentPosition]) -> float:
+        """Compute how aligned agent confidence levels are."""
+        confidences = [p.confidence for p in positions]
+        return 1.0 - min(1.0, _safe_std(confidences) * 2)
+
+    def _compute_majority_fraction(
+        self, positions: list[AgentPosition], clusters: list[list[str]],
+    ) -> float:
+        """Compute fraction of agents in the largest cluster."""
+        if not clusters or not positions:
+            return 0.0
+        largest_cluster_size = max(len(c) for c in clusters)
+        return largest_cluster_size / len(positions)
 
     def _determine_consensus_type(
         self,
@@ -647,11 +660,22 @@ class ConsensusDetector:
 
         recent_mean = _safe_mean(recent)
         earlier_mean = _safe_mean(earlier)
-        delta = recent_mean - earlier_mean
-
-        # Also check variance (converging = variance decreasing)
         recent_std = _safe_std(recent)
         earlier_std = _safe_std(earlier) if len(earlier) >= 2 else 0.0
+
+        return self._classify_convergence_trend(
+            recent_mean, earlier_mean, recent_std, earlier_std
+        )
+
+    def _classify_convergence_trend(
+        self,
+        recent_mean: float,
+        earlier_mean: float,
+        recent_std: float,
+        earlier_std: float,
+    ) -> ConvergenceTrend:
+        """Classify the convergence trend from window statistics."""
+        delta = recent_mean - earlier_mean
         variance_delta = recent_std - earlier_std
 
         # Check if already converged
@@ -690,33 +714,35 @@ class ConsensusDetector:
         if metrics is None:
             metrics = self.measure_agreement(positions)
 
-        # Need history to detect stalemate
-        if len(self.history.snapshots) < self.stalemate_rounds:
+        if not self._is_stalemate_eligible(metrics):
             return None
 
-        # Check if metrics indicate stalemate
-        if metrics.consensus_type != ConsensusType.STALEMATE.value:
-            return None
-
-        # Check trend: are we stuck?
         trend = self.detect_convergence_trend()
         if trend in (ConvergenceTrend.CONVERGING, ConvergenceTrend.SLOWLY_CONVERGING):
             return None  # Still making progress
 
-        # Calculate severity
+        return self._build_stalemate(positions, metrics, trend)
+
+    def _is_stalemate_eligible(self, metrics: AgreementMetrics) -> bool:
+        """Check if stalemate detection conditions are met."""
+        if len(self.history.snapshots) < self.stalemate_rounds:
+            return False
+        if metrics.consensus_type != ConsensusType.STALEMATE.value:
+            return False
+        return True
+
+    def _build_stalemate(
+        self,
+        positions: list[AgentPosition],
+        metrics: AgreementMetrics,
+        trend: ConvergenceTrend,
+    ) -> Stalemate:
+        """Build a Stalemate object from analysis results."""
         severity = _clamp(1.0 - metrics.agreement_score)
         if trend == ConvergenceTrend.DIVERGING:
             severity = min(1.0, severity + 0.2)
 
-        # Identify diverging agents (those most distant from the group centroid)
-        group_vector = mean_vector([p.to_vector() for p in positions])
-        diverging: list[str] = []
-        for p in positions:
-            dist = euclidean_distance(p.to_vector(), group_vector)
-            if dist > metrics.mean_distance * 1.5:
-                diverging.append(p.agent_id)
-
-        # Cluster info
+        diverging = self._identify_diverging_agents(positions, metrics)
         clusters = self._find_clusters(positions)
         cluster_info = {
             "count": len(clusters),
@@ -724,7 +750,6 @@ class ConsensusDetector:
             "agents_per_cluster": clusters,
         }
 
-        # Build stalemate
         stalemate = Stalemate(
             detected_at_round=self._round_counter,
             severity=severity,
@@ -742,6 +767,20 @@ class ConsensusDetector:
 
         return stalemate
 
+    def _identify_diverging_agents(
+        self,
+        positions: list[AgentPosition],
+        metrics: AgreementMetrics,
+    ) -> list[str]:
+        """Identify agents most distant from the group centroid."""
+        group_vector = mean_vector([p.to_vector() for p in positions])
+        diverging: list[str] = []
+        for p in positions:
+            dist = euclidean_distance(p.to_vector(), group_vector)
+            if dist > metrics.mean_distance * 1.5:
+                diverging.append(p.agent_id)
+        return diverging
+
     # -- Resolution suggestions ----------------------------------------------
 
     def suggest_resolution(self, stalemate: Stalemate) -> ResolutionStrategy:
@@ -757,71 +796,91 @@ class ConsensusDetector:
 
         # High severity with many clusters: re-branch
         if severity > 0.8 and cluster_count >= 3:
-            return ResolutionStrategy(
-                type=ResolutionType.REBRANCH.value,
-                description=(
-                    "Strong disagreement detected across multiple positions. "
-                    "Re-branch the discussion into parallel explorations "
-                    "of each position, then synthesize."
-                ),
-                params={
-                    "branch_per_cluster": True,
-                    "refined_prompts": True,
-                    "include_dissenting_views": True,
-                },
-                expected_improvement=0.3,
-                confidence=0.7,
-            )
+            return self._suggest_rebranch(stalemate)
 
         # Diverging trend: escalate to higher authority
         if trend == ConvergenceTrend.DIVERGING:
-            return ResolutionStrategy(
-                type=ResolutionType.ESCALATE.value,
-                description=(
-                    "Agents are actively diverging. Escalate to a "
-                    "moderator or higher-level agent for arbitration."
-                ),
-                params={
-                    "escalate_to": "moderator",
-                    "provide_summary": True,
-                },
-                expected_improvement=0.2,
-                confidence=0.6,
-            )
+            return self._suggest_escalate()
 
         # Two clusters: try compromise or split difference
         if cluster_count == 2:
-            return ResolutionStrategy(
-                type=ResolutionType.SPLIT_DIFFERENCE.value,
-                description=(
-                    "Two distinct positions detected. Try splitting the "
-                    "difference or finding a compromise position."
-                ),
-                params={
-                    "method": "weighted_midpoint",
-                    "consider_priorities": True,
-                },
-                expected_improvement=0.4,
-                confidence=0.65,
-            )
+            return self._suggest_split_difference()
 
         # Moderate stalemate: vote
         if severity > 0.5:
-            return ResolutionStrategy(
-                type=ResolutionType.VOTE.value,
-                description=(
-                    "Moderate disagreement. Conduct a weighted vote "
-                    "to break the stalemate."
-                ),
-                params={
-                    "method": "weighted_confidence",
-                    "threshold": 0.5,
-                },
-                expected_improvement=0.3,
-                confidence=0.7,
-            )
+            return self._suggest_vote()
 
         # Low severity: defer and gather more information
+        return self._suggest_defer(stalemate)
+
+    def _suggest_rebranch(self, stalemate: Stalemate) -> ResolutionStrategy:
+        """Suggest re-branching for high-severity multi-cluster stalemate."""
+        return ResolutionStrategy(
+            type=ResolutionType.REBRANCH.value,
+            description=(
+                "Strong disagreement detected across multiple positions. "
+                "Re-branch the discussion into parallel explorations "
+                "of each position, then synthesize."
+            ),
+            params={
+                "branch_per_cluster": True,
+                "refined_prompts": True,
+                "include_dissenting_views": True,
+            },
+            expected_improvement=0.3,
+            confidence=0.7,
+        )
+
+    def _suggest_escalate(self) -> ResolutionStrategy:
+        """Suggest escalation to higher authority."""
+        return ResolutionStrategy(
+            type=ResolutionType.ESCALATE.value,
+            description=(
+                "Agents are actively diverging. Escalate to a "
+                "moderator or higher-level agent for arbitration."
+            ),
+            params={
+                "escalate_to": "moderator",
+                "provide_summary": True,
+            },
+            expected_improvement=0.2,
+            confidence=0.6,
+        )
+
+    def _suggest_split_difference(self) -> ResolutionStrategy:
+        """Suggest splitting the difference for two-cluster stalemate."""
+        return ResolutionStrategy(
+            type=ResolutionType.SPLIT_DIFFERENCE.value,
+            description=(
+                "Two distinct positions detected. Try splitting the "
+                "difference or finding a compromise position."
+            ),
+            params={
+                "method": "weighted_midpoint",
+                "consider_priorities": True,
+            },
+            expected_improvement=0.4,
+            confidence=0.65,
+        )
+
+    def _suggest_vote(self) -> ResolutionStrategy:
+        """Suggest weighted vote for moderate stalemate."""
+        return ResolutionStrategy(
+            type=ResolutionType.VOTE.value,
+            description=(
+                "Moderate disagreement. Conduct a weighted vote "
+                "to break the stalemate."
+            ),
+            params={
+                "method": "weighted_confidence",
+                "threshold": 0.5,
+            },
+            expected_improvement=0.3,
+            confidence=0.7,
+        )
+
+    def _suggest_defer(self, stalemate: Stalemate) -> ResolutionStrategy:
+        """Suggest deferring to gather more information."""
         return ResolutionStrategy(
             type=ResolutionType.DEFER.value,
             description=(
