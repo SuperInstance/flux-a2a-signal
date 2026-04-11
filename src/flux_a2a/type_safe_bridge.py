@@ -337,52 +337,43 @@ class TypeAlgebra:
                 notes=notes,
             ))
 
+    # Declarative table: extra noun-cat case equivalence classes.
+    # Each entry: (class_id, name, slot_pairs, degree, notes)
+    _NC_EXTRA_CASES: List[tuple] = [
+        ("nc_scope_instrumental",
+         "Scope: tritiya (instrumental) — SAN-only",
+         [("san", "tritiya"), ("lat", "ablativus")],
+         PreservationDegree.PARTIAL,
+         "Instrumental/ablative: तृतीया, Ablativus (partial overlap)"),
+        ("nc_scope_locative",
+         "Scope: saptami (locative) — SAN-only",
+         [("san", "saptami")],
+         PreservationDegree.DEGRADED,
+         "Locative case — no direct DEU/LAT equivalent: सप्तमी"),
+        ("nc_scope_vocative",
+         "Scope: sambodhana / vocativus — agent invocation",
+         [("san", "sambodhana"), ("lat", "vocativus")],
+         PreservationDegree.LOSSLESS,
+         "Vocative / agent invocation: संबोधन, Vocativus"),
+        ("nc_generic",
+         "Generic / contextual — default classifier",
+         [("zho", "generic")],
+         PreservationDegree.DEGRADED,
+         "Default classifier 個 — context-dependent, no direct cross-language equivalent"),
+    ]
+
     def _populate_nc_extra_cases(self) -> None:
         """Noun-cat: extra case systems (instrumental, locative, vocative, generic)."""
-        # SAN-only extra cases
-        self._add_class(TypeEquivalenceClass(
-            class_id="nc_scope_instrumental",
-            name="Scope: tritiya (instrumental) — SAN-only",
-            slots=frozenset([
-                self._slot("san", "tritiya"),
-                self._slot("lat", "ablativus"),  # ablative overlaps functionally
-            ]),
-            degree=PreservationDegree.PARTIAL,
-            semantic_domain="noun_cat",
-            notes="Instrumental/ablative: तृतीया, Ablativus (partial overlap)",
-        ))
-        self._add_class(TypeEquivalenceClass(
-            class_id="nc_scope_locative",
-            name="Scope: saptami (locative) — SAN-only",
-            slots=frozenset([
-                self._slot("san", "saptami"),
-            ]),
-            degree=PreservationDegree.DEGRADED,
-            semantic_domain="noun_cat",
-            notes="Locative case — no direct DEU/LAT equivalent: सप्तमी",
-        ))
-        self._add_class(TypeEquivalenceClass(
-            class_id="nc_scope_vocative",
-            name="Scope: sambodhana / vocativus — agent invocation",
-            slots=frozenset([
-                self._slot("san", "sambodhana"),
-                self._slot("lat", "vocativus"),
-            ]),
-            degree=PreservationDegree.LOSSLESS,
-            semantic_domain="noun_cat",
-            notes="Vocative / agent invocation: संबोधन, Vocativus",
-        ))
-        # Generic/contextual classifier
-        self._add_class(TypeEquivalenceClass(
-            class_id="nc_generic",
-            name="Generic / contextual — default classifier",
-            slots=frozenset([
-                self._slot("zho", "generic"),
-            ]),
-            degree=PreservationDegree.DEGRADED,
-            semantic_domain="noun_cat",
-            notes="Default classifier 個 — context-dependent, no direct cross-language equivalent",
-        ))
+        for class_id, name, slot_pairs, degree, notes in self._NC_EXTRA_CASES:
+            self._add_class(TypeEquivalenceClass(
+                class_id=class_id,
+                name=name,
+                slots=frozenset([self._slot(lang, tag)
+                                 for lang, tag in slot_pairs]),
+                degree=degree,
+                semantic_domain="noun_cat",
+                notes=notes,
+            ))
 
     def _populate_noun_cat(self) -> None:
         """Populate Domain 1: Noun Categorization equivalence classes."""

@@ -224,13 +224,8 @@ class UnifiedASTNode:
             op = self.metadata.get("operation", "?")
             child_keys = tuple(c.structural_key() for c in self.children)
             return (self.node_type, op, child_keys)
-        elif self.node_type == NodeKind.SEQUENCE:
-            child_keys = tuple(c.structural_key() for c in self.children)
-            return (self.node_type, child_keys)
-        elif self.node_type == NodeKind.CONDITIONAL:
-            child_keys = tuple(c.structural_key() for c in self.children)
-            return (self.node_type, child_keys)
-        elif self.node_type == NodeKind.LOOP:
+        elif self.node_type in (NodeKind.SEQUENCE, NodeKind.CONDITIONAL,
+                                     NodeKind.LOOP):
             child_keys = tuple(c.structural_key() for c in self.children)
             return (self.node_type, child_keys)
         else:
@@ -640,6 +635,18 @@ _COMPOUND_OPS = frozenset({
     "sum_range", "factorial",
 })
 
+# Container node types whose distance is computed from children only
+_CONTAINER_NODE_TYPES = frozenset({
+    NodeKind.SEQUENCE, NodeKind.CONDITIONAL, NodeKind.LOOP,
+})
+
+# Multiplier for child-only distance by container node type
+_CONTAINER_DISTANCE_MULTIPLIERS: dict[NodeKind, float] = {
+    NodeKind.SEQUENCE: 1.0,
+    NodeKind.CONDITIONAL: 0.7,
+    NodeKind.LOOP: 0.7,
+}
+
 
 @dataclass
 class UnificationResult:
@@ -910,16 +917,22 @@ class ASTUnifier:
 
         return None
 
-    # Ops that pass operands through as application children
-    _PASSTHROUGH_OPS = frozenset({
-        "print", "tell", "ask", "delegate", "broadcast",
-        "mov", "load", "store",
-    })
+    # Ops that map operands through as application children (identity mapping)
+    _PASSTHROUGH_OPS: dict[str, str] = {
+        op: op for op in ("print", "tell", "ask", "delegate", "broadcast",
+                           "mov", "load", "store")
+    }
 
     # Ops that pass operands through but normalize the operation name
     _NORMALIZED_PASSTHROUGH_OPS: dict[str, str] = {
         **{op: op for op in _COMPOUND_OPS},
         "cmp": "cmp", "icmp": "cmp",
+    }
+
+    # Combined operand-passthrough lookup: identity + normalized
+    _OPERAND_PASSTHROUGH_OPS: dict[str, str] = {
+        **_PASSTHROUGH_OPS,
+        **_NORMALIZED_PASSTHROUGH_OPS,
     }
 
     # Ops with no operands (DEU-specific protocol ops)
@@ -938,25 +951,23 @@ class ASTUnifier:
     ) -> UnifiedASTNode | None:
         """Convert ops that map operands directly to application children.
 
-        Handles IO/agent protocol ops, compound ops, memory ops.
-        Returns None if *op* does not match any passthrough category.
+        Handles IO/agent protocol ops, compound ops, memory ops, and
+        DEU-specific protocol ops.  Returns None if *op* does not match
+        any passthrough category.
         """
-        if op in self._PASSTHROUGH_OPS:
-            children = [self._operand_to_node(o, source_lang) for o in operands]
-            return UnifiedASTNode.application(
-                op, *children, **meta, original=instr.opcode)
-
-        if op in self._NORMALIZED_PASSTHROUGH_OPS:
-            norm_op = self._NORMALIZED_PASSTHROUGH_OPS[op]
-            children = [self._operand_to_node(o, source_lang) for o in operands]
-            return UnifiedASTNode.application(
-                norm_op, *children, **meta, original=instr.opcode)
-
+        # Protocol ops: no operands mapped to children
         if op in self._PROTOCOL_OPS:
             return UnifiedASTNode.application(op, **meta,
                                               original=instr.opcode)
 
-        return None
+        # Operand passthrough ops (identity or normalized)
+        effective_op = self._OPERAND_PASSTHROUGH_OPS.get(op)
+        if effective_op is None:
+            return None
+
+        children = [self._operand_to_node(o, source_lang) for o in operands]
+        return UnifiedASTNode.application(
+            effective_op, *children, **meta, original=instr.opcode)
 
     def _convert_unary_instr(
         self,
@@ -1062,22 +1073,12 @@ class ASTUnifier:
         if op == "nop":
             return UnifiedASTNode.nop(**meta)
 
-        # Delegated instruction handlers
-        node = self._convert_binary_arith_instr(op, operands, source_lang, meta, instr)
-        if node is not None:
-            return node
-
-        node = self._convert_movi_instr(op, operands, source_lang, meta, instr)
-        if node is not None:
-            return node
-
-        node = self._convert_simple_app_instr(op, operands, source_lang, meta, instr)
-        if node is not None:
-            return node
-
-        node = self._convert_control_flow_instr(op, operands, source_lang, meta, instr)
-        if node is not None:
-            return node
+        # Delegated instruction handlers (ordered by specificity)
+        for converter_name in self._INSTR_CONVERTER_METHODS:
+            node = getattr(self, converter_name)(
+                op, operands, source_lang, meta, instr)
+            if node is not None:
+                return node
 
         # Fallback: unknown operation
         children = [self._operand_to_node(o, source_lang)
@@ -1284,13 +1285,27 @@ class ASTUnifier:
         child_dist = self._children_distance(a.children, b.children, depth + 1)
         return child_dist * multiplier
 
+    # Ordered converter method names for instruction → node dispatch
+    _INSTR_CONVERTER_METHODS = (
+        "_convert_binary_arith_instr",
+        "_convert_movi_instr",
+        "_convert_simple_app_instr",
+        "_convert_control_flow_instr",
+    )
+
     def _distance_same_type(
         self,
         a: UnifiedASTNode,
         b: UnifiedASTNode,
         depth: int,
     ) -> float:
-        """Compute distance when two nodes have the same type."""
+        """Compute distance when two nodes have the same type.
+
+        Uses a dispatch approach: leaf types (LITERAL, VARIABLE) and
+        APPLICATION each have dedicated helpers; container types
+        (SEQUENCE, CONDITIONAL, LOOP) use the shared child-only helper
+        with type-specific multipliers from ``_CONTAINER_DISTANCE_MULTIPLIERS``.
+        """
         weight = 1.0 / (1.0 + depth * 0.1)  # Decay weight with depth
 
         if a.node_type == NodeKind.LITERAL:
@@ -1302,13 +1317,11 @@ class ASTUnifier:
         if a.node_type == NodeKind.APPLICATION:
             return self._distance_application(a, b, depth, weight)
 
-        if a.node_type == NodeKind.SEQUENCE:
-            return self._distance_child_only(a, b, depth)
+        if a.node_type in _CONTAINER_NODE_TYPES:
+            multiplier = _CONTAINER_DISTANCE_MULTIPLIERS[a.node_type]
+            return self._distance_child_only(a, b, depth, multiplier=multiplier)
 
-        if a.node_type in (NodeKind.CONDITIONAL, NodeKind.LOOP):
-            return self._distance_child_only(a, b, depth, multiplier=0.7)
-
-        # NOP, HALT, UNKNOWN — same type = same
+        # NOP, HALT, UNKNOWN — same type = identical
         return 0.0
 
     def _tree_distance(self, a: UnifiedASTNode, b: UnifiedASTNode,

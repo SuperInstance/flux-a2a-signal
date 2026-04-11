@@ -235,6 +235,52 @@ NL_CONSTRUCTS: Dict[str, Dict[str, List[str]]] = {
 
 
 # ══════════════════════════════════════════════════════════════════
+# Dimension Bridge Classification
+# ══════════════════════════════════════════════════════════════════
+
+def _classify_dimension_bridge(
+    dim: str, src_val: float, tgt_val: float,
+) -> Tuple[str, float, str, List[str], List[str]]:
+    """Classify a single dimension's bridge mode.
+
+    Returns:
+        (mode, severity, description, constructs_lost, constructs_gained)
+    """
+    delta = src_val - tgt_val
+    abs_delta = abs(delta)
+    weight = DIMENSION_WEIGHTS.get(dim, 1.0)
+
+    if abs_delta < 0.15:
+        return (
+            "direct", abs_delta * 2,
+            f"Near-equal: direct mapping ({src_val:.2f} ≈ {tgt_val:.2f})",
+            [], [],
+        )
+    elif delta > 0:
+        ci = CONSTRUCT_MAP.get(dim, {}).get("reduce", {})
+        return (
+            "lossy", min(delta * weight, 1.0),
+            f"Feature reduction: must compile away ({src_val:.2f} → {tgt_val:.2f})",
+            list(ci.get("lost", [])), list(ci.get("gained", [])),
+        )
+    else:
+        ci = CONSTRUCT_MAP.get(dim, {}).get("increase", {})
+        return (
+            "overhead", min(abs_delta * weight, 1.0),
+            f"Feature emulation: must build up ({src_val:.2f} → {tgt_val:.2f})",
+            list(ci.get("lost", [])), list(ci.get("gained", [])),
+        )
+
+
+# Highlighted bridge pairs for the report's Section 4.
+_HIGHLIGHTED_BRIDGE_PAIRS: List[Tuple[str, str]] = [
+    ("zho", "deu"),
+    ("kor", "san"),
+    ("wen", "lat"),
+]
+
+
+# ══════════════════════════════════════════════════════════════════
 # Paradigm Flow Engine
 # ══════════════════════════════════════════════════════════════════
 
@@ -302,41 +348,20 @@ class ParadigmFlow:
         Returns:
             (dimension_bridges, all_lost, all_gained)
         """
-        dimension_bridges: List[DimensionBridge] = []
-        all_lost: List[str] = []
-        all_gained: List[str] = []
+        bridges: List[DimensionBridge] = []
+        lost: List[str] = []
+        gained: List[str] = []
 
         for dim in DIMENSION_NAMES:
             src_val = source.coordinates[dim]
             tgt_val = target.coordinates[dim]
             delta = src_val - tgt_val
-            abs_delta = abs(delta)
-            weight = DIMENSION_WEIGHTS.get(dim, 1.0)
-
-            # Determine mode and severity
-            if abs_delta < 0.15:
-                mode = "direct"
-                severity = abs_delta * 2
-                desc = f"Near-equal: direct mapping ({src_val:.2f} ≈ {tgt_val:.2f})"
-            elif delta > 0:
-                mode = "lossy"
-                severity = min(delta * weight, 1.0)
-                desc = (f"Feature reduction: must compile away "
-                        f"({src_val:.2f} → {tgt_val:.2f})")
-                # Add constructs lost/gained
-                construct_info = CONSTRUCT_MAP.get(dim, {}).get("reduce", {})
-                all_lost.extend(construct_info.get("lost", []))
-                all_gained.extend(construct_info.get("gained", []))
-            else:
-                mode = "overhead"
-                severity = min(abs_delta * weight, 1.0)
-                desc = (f"Feature emulation: must build up "
-                        f"({src_val:.2f} → {tgt_val:.2f})")
-                construct_info = CONSTRUCT_MAP.get(dim, {}).get("increase", {})
-                all_lost.extend(construct_info.get("lost", []))
-                all_gained.extend(construct_info.get("gained", []))
-
-            dimension_bridges.append(DimensionBridge(
+            mode, severity, desc, dim_lost, dim_gained = (
+                _classify_dimension_bridge(dim, src_val, tgt_val)
+            )
+            lost.extend(dim_lost)
+            gained.extend(dim_gained)
+            bridges.append(DimensionBridge(
                 dimension=dim,
                 source_value=src_val,
                 target_value=tgt_val,
@@ -346,7 +371,7 @@ class ParadigmFlow:
                 description=desc,
             ))
 
-        return dimension_bridges, all_lost, all_gained
+        return bridges, lost, gained
 
     def _identify_transformed(
         self, source: ParadigmPoint, target: ParadigmPoint
@@ -818,12 +843,7 @@ def _report_section_key_bridges(
     lines.append("## 4. Key Bridge Analyses")
     lines.append("")
 
-    highlighted = [
-        ("zho", "deu"),
-        ("kor", "san"),
-        ("wen", "lat"),
-    ]
-    for src_name, tgt_name in highlighted:
+    for src_name, tgt_name in _HIGHLIGHTED_BRIDGE_PAIRS:
         _report_single_bridge_analysis(lines, flow, lattice, src_name, tgt_name)
 
 

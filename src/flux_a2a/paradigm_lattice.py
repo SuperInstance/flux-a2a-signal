@@ -146,6 +146,168 @@ class ParadigmPoint:
 
 
 # ══════════════════════════════════════════════════════════════════
+# Paradigm Point Data Tables
+# ══════════════════════════════════════════════════════════════════
+
+# Each entry: (name, coordinates, examples, notes)
+_CLASSICAL_LANGUAGE_DATA: List[Tuple[str, Dict[str, float], List[str], str]] = [
+    ("haskell",
+     {"state_magnitude": 0.05, "control_explicitness": 0.3,
+      "typing_strength": 0.95, "composition_style": 0.6,
+      "concurrency_model": 0.4, "effect_tracking": 0.9,
+      "naming_style": 0.7, "abstraction_level": 0.85},
+     ["Haskell", "Idris", "Agda"],
+     "Pure functional + type-class driven. Monads reify effects."),
+
+    ("c",
+     {"state_magnitude": 0.95, "control_explicitness": 0.95,
+      "typing_strength": 0.1, "composition_style": 0.3,
+      "concurrency_model": 0.2, "effect_tracking": 0.0,
+      "naming_style": 0.2, "abstraction_level": 0.1},
+     ["C", "Assembly"],
+     "Raw von Neumann. Manual memory. No safety net."),
+
+    ("prolog",
+     {"state_magnitude": 0.2, "control_explicitness": 0.3,
+      "typing_strength": 0.5, "composition_style": 0.5,
+      "concurrency_model": 0.3, "effect_tracking": 0.1,
+      "naming_style": 0.8, "abstraction_level": 0.7},
+     ["Prolog", "Mercury", "Datalog"],
+     "Logic programming via unification/backtracking. Cut = imperative leak."),
+
+    ("rust",
+     {"state_magnitude": 0.5, "control_explicitness": 0.8,
+      "typing_strength": 0.85, "composition_style": 0.4,
+      "concurrency_model": 0.6, "effect_tracking": 0.6,
+      "naming_style": 0.4, "abstraction_level": 0.35},
+     ["Rust", "Zig"],
+     "Ownership = affine types. Borrow checker enforces resource protocol."),
+
+    ("python",
+     {"state_magnitude": 0.7, "control_explicitness": 0.6,
+      "typing_strength": 0.25, "composition_style": 0.5,
+      "concurrency_model": 0.3, "effect_tracking": 0.05,
+      "naming_style": 0.8, "abstraction_level": 0.65},
+     ["Python", "Ruby", "JavaScript"],
+     "Dynamic + OO + multi-paradigm. Batteries-included pragmatism."),
+
+    ("lisp",
+     {"state_magnitude": 0.6, "control_explicitness": 0.5,
+      "typing_strength": 0.3, "composition_style": 0.2,
+      "concurrency_model": 0.5, "effect_tracking": 0.2,
+      "naming_style": 0.5, "abstraction_level": 0.8},
+     ["Common Lisp", "Scheme", "Racket", "Clojure"],
+     "Homoiconic metaprogramming. Macros define paradigms. Code = data."),
+
+    ("apl",
+     {"state_magnitude": 0.3, "control_explicitness": 0.2,
+      "typing_strength": 0.4, "composition_style": 0.1,
+      "concurrency_model": 0.3, "effect_tracking": 0.1,
+      "naming_style": 0.1, "abstraction_level": 0.7},
+     ["APL", "J", "K", "Q"],
+     "Array programming. Extreme information density. Tacit (point-free)."),
+
+    ("forth",
+     {"state_magnitude": 0.8, "control_explicitness": 0.9,
+      "typing_strength": 0.0, "composition_style": 0.0,
+      "concurrency_model": 0.1, "effect_tracking": 0.0,
+      "naming_style": 0.0, "abstraction_level": 0.2},
+     ["Forth", "Factor", "PostScript", "Joy"],
+     "Concatenative. Stack-based. Syntax IS composition."),
+
+    ("smalltalk",
+     {"state_magnitude": 0.7, "control_explicitness": 0.5,
+      "typing_strength": 0.15, "composition_style": 0.95,
+      "concurrency_model": 0.3, "effect_tracking": 0.1,
+      "naming_style": 0.7, "abstraction_level": 0.8},
+     ["Smalltalk", "Self", "Io"],
+     "Pure OO. Everything is an object. Message-passing paradigm."),
+
+    ("java",
+     {"state_magnitude": 0.8, "control_explicitness": 0.7,
+      "typing_strength": 0.6, "composition_style": 0.9,
+      "concurrency_model": 0.5, "effect_tracking": 0.15,
+      "naming_style": 0.6, "abstraction_level": 0.5},
+     ["Java", "C#", "C++"],
+     "Static OO. Verbose. Enterprise-scale. Checked exceptions."),
+]
+
+_NL_PARADIGM_DATA: List[Tuple[str, Dict[str, float], List[str], str]] = [
+    ("zho",
+     {"state_magnitude": 0.5, "control_explicitness": 0.4,
+      "typing_strength": 0.55, "composition_style": 0.3,
+      "concurrency_model": 0.5, "effect_tracking": 0.35,
+      "naming_style": 0.6, "abstraction_level": 0.7},
+     ["flux_zho", "Mandarin Chinese"],
+     ("Chinese: classifier system = grammatical type system. "
+      "Topic-comment structure = zero-anaphora implicit threading. "
+      "Context-dependent pronoun resolution = confidence-weighted inference. "
+      "Honorific markers → capability annotations.")),
+
+    ("kor",
+     {"state_magnitude": 0.4, "control_explicitness": 0.5,
+      "typing_strength": 0.5, "composition_style": 0.4,
+      "concurrency_model": 0.6, "effect_tracking": 0.65,
+      "naming_style": 0.75, "abstraction_level": 0.65},
+     ["flux_kor", "Korean"],
+     ("Korean: 7-level honorific system = capability/security hierarchy. "
+      "Speech levels (하십시오체/해요체/해체 etc.) → CAP_REQUIRE levels. "
+      "Subject-honorific + object-honorific → trust-directed communication. "
+      "Particle system (은/는, 이/가) → scope/topic markers.")),
+
+    ("san",
+     {"state_magnitude": 0.3, "control_explicitness": 0.35,
+      "typing_strength": 0.7, "composition_style": 0.3,
+      "concurrency_model": 0.45, "effect_tracking": 0.6,
+      "naming_style": 0.85, "abstraction_level": 0.8},
+     ["flux_san", "Sanskrit"],
+     ("Sanskrit: 8-case vibhakti system = 8-level scope hierarchy. "
+      "Each case (प्रथमा to संबोधन) maps to a ScopeLevel opcode. "
+      "3 genders + 3 numbers = polymorphic type system. "
+      "Sandhi rules = automatic word-boundary fusion. "
+      "Paninian grammar = world's first formal grammar.")),
+
+    ("deu",
+     {"state_magnitude": 0.6, "control_explicitness": 0.7,
+      "typing_strength": 0.65, "composition_style": 0.6,
+      "concurrency_model": 0.4, "effect_tracking": 0.4,
+      "naming_style": 0.7, "abstraction_level": 0.55},
+     ["flux_deu", "German"],
+     ("German: 4-case Kasus system (Nominativ/Akkusativ/Dativ/Genitiv) = scope. "
+      "Compound nouns = type composition (Donaudampfschifffahrt...). "
+      "Verb-second (V2) word order = rigid control flow. "
+      "Separable-prefix verbs = deferred computation. "
+      "Gender system (der/die/das) = nominal type annotations.")),
+
+    ("wen",
+     {"state_magnitude": 0.35, "control_explicitness": 0.25,
+      "typing_strength": 0.45, "composition_style": 0.15,
+      "concurrency_model": 0.35, "effect_tracking": 0.5,
+      "naming_style": 0.3, "abstraction_level": 0.85},
+     ["flux_wen", "Classical Chinese (文言文)"],
+     ("Classical Chinese: extreme information density = minimal syntax. "
+      "Topic-comment = zero-anaphora continuation. "
+      "Confucian 五常 (五德) → capability/trust system (仁義禮智信). "
+      "Sun Tzu 兵法 → attack/defend/advance/retreat opcodes. "
+      "No inflection = positional/pipeline composition. "
+      "S-V-O flexibility = dataflow rather than strict sequence.")),
+
+    ("lat",
+     {"state_magnitude": 0.45, "control_explicitness": 0.6,
+      "typing_strength": 0.6, "composition_style": 0.45,
+      "concurrency_model": 0.35, "effect_tracking": 0.55,
+      "naming_style": 0.8, "abstraction_level": 0.7},
+     ["flux_lat", "Latin"],
+     ("Latin: 6-case system + 6-tense system = spatial-temporal scope. "
+      "Tenses (Present/Imperfect/Perfect/Pluperfect/Future/Fut.Perfect) "
+      "= temporal aspect opcodes (LOOP_START/ROLLBACK_SAVE/LAZY_DEFER etc.). "
+      "Case system (Nom/Acc/Gen/Dat/Abl/Voc) = scope levels + invocation. "
+      "Word-order freedom = named/positional flexibility. "
+      "Subjunctive mood = modal/confidence system.")),
+]
+
+
+# ══════════════════════════════════════════════════════════════════
 # Paradigm Lattice
 # ══════════════════════════════════════════════════════════════════
 
@@ -177,305 +339,23 @@ class ParadigmLattice:
 
     def _populate_classical_languages(self) -> None:
         """Register classical programming language paradigm points."""
-
-        # ─── Classical Programming Languages ────────────────────
-
-        self.add(ParadigmPoint(
-            name="haskell",
-            coordinates={
-                "state_magnitude": 0.05,
-                "control_explicitness": 0.3,
-                "typing_strength": 0.95,
-                "composition_style": 0.6,
-                "concurrency_model": 0.4,
-                "effect_tracking": 0.9,
-                "naming_style": 0.7,
-                "abstraction_level": 0.85,
-            },
-            examples=["Haskell", "Idris", "Agda"],
-            notes="Pure functional + type-class driven. Monads reify effects.",
-        ))
-
-        self.add(ParadigmPoint(
-            name="c",
-            coordinates={
-                "state_magnitude": 0.95,
-                "control_explicitness": 0.95,
-                "typing_strength": 0.1,
-                "composition_style": 0.3,
-                "concurrency_model": 0.2,
-                "effect_tracking": 0.0,
-                "naming_style": 0.2,
-                "abstraction_level": 0.1,
-            },
-            examples=["C", "Assembly"],
-            notes="Raw von Neumann. Manual memory. No safety net.",
-        ))
-
-        self.add(ParadigmPoint(
-            name="prolog",
-            coordinates={
-                "state_magnitude": 0.2,
-                "control_explicitness": 0.3,
-                "typing_strength": 0.5,
-                "composition_style": 0.5,
-                "concurrency_model": 0.3,
-                "effect_tracking": 0.1,
-                "naming_style": 0.8,
-                "abstraction_level": 0.7,
-            },
-            examples=["Prolog", "Mercury", "Datalog"],
-            notes="Logic programming via unification/backtracking. Cut = imperative leak.",
-        ))
-
-        self.add(ParadigmPoint(
-            name="rust",
-            coordinates={
-                "state_magnitude": 0.5,
-                "control_explicitness": 0.8,
-                "typing_strength": 0.85,
-                "composition_style": 0.4,
-                "concurrency_model": 0.6,
-                "effect_tracking": 0.6,
-                "naming_style": 0.4,
-                "abstraction_level": 0.35,
-            },
-            examples=["Rust", "Zig"],
-            notes="Ownership = affine types. Borrow checker enforces resource protocol.",
-        ))
-
-        self.add(ParadigmPoint(
-            name="python",
-            coordinates={
-                "state_magnitude": 0.7,
-                "control_explicitness": 0.6,
-                "typing_strength": 0.25,
-                "composition_style": 0.5,
-                "concurrency_model": 0.3,
-                "effect_tracking": 0.05,
-                "naming_style": 0.8,
-                "abstraction_level": 0.65,
-            },
-            examples=["Python", "Ruby", "JavaScript"],
-            notes="Dynamic + OO + multi-paradigm. Batteries-included pragmatism.",
-        ))
-
-        self.add(ParadigmPoint(
-            name="lisp",
-            coordinates={
-                "state_magnitude": 0.6,
-                "control_explicitness": 0.5,
-                "typing_strength": 0.3,
-                "composition_style": 0.2,
-                "concurrency_model": 0.5,
-                "effect_tracking": 0.2,
-                "naming_style": 0.5,
-                "abstraction_level": 0.8,
-            },
-            examples=["Common Lisp", "Scheme", "Racket", "Clojure"],
-            notes="Homoiconic metaprogramming. Macros define paradigms. Code = data.",
-        ))
-
-        self.add(ParadigmPoint(
-            name="apl",
-            coordinates={
-                "state_magnitude": 0.3,
-                "control_explicitness": 0.2,
-                "typing_strength": 0.4,
-                "composition_style": 0.1,
-                "concurrency_model": 0.3,
-                "effect_tracking": 0.1,
-                "naming_style": 0.1,
-                "abstraction_level": 0.7,
-            },
-            examples=["APL", "J", "K", "Q"],
-            notes="Array programming. Extreme information density. Tacit (point-free).",
-        ))
-
-        self.add(ParadigmPoint(
-            name="forth",
-            coordinates={
-                "state_magnitude": 0.8,
-                "control_explicitness": 0.9,
-                "typing_strength": 0.0,
-                "composition_style": 0.0,
-                "concurrency_model": 0.1,
-                "effect_tracking": 0.0,
-                "naming_style": 0.0,
-                "abstraction_level": 0.2,
-            },
-            examples=["Forth", "Factor", "PostScript", "Joy"],
-            notes="Concatenative. Stack-based. Syntax IS composition.",
-        ))
-
-        self.add(ParadigmPoint(
-            name="smalltalk",
-            coordinates={
-                "state_magnitude": 0.7,
-                "control_explicitness": 0.5,
-                "typing_strength": 0.15,
-                "composition_style": 0.95,
-                "concurrency_model": 0.3,
-                "effect_tracking": 0.1,
-                "naming_style": 0.7,
-                "abstraction_level": 0.8,
-            },
-            examples=["Smalltalk", "Self", "Io"],
-            notes="Pure OO. Everything is an object. Message-passing paradigm.",
-        ))
-
-        self.add(ParadigmPoint(
-            name="java",
-            coordinates={
-                "state_magnitude": 0.8,
-                "control_explicitness": 0.7,
-                "typing_strength": 0.6,
-                "composition_style": 0.9,
-                "concurrency_model": 0.5,
-                "effect_tracking": 0.15,
-                "naming_style": 0.6,
-                "abstraction_level": 0.5,
-            },
-            examples=["Java", "C#", "C++"],
-            notes="Static OO. Verbose. Enterprise-scale. Checked exceptions.",
-        ))
+        for name, coords, examples, notes in _CLASSICAL_LANGUAGE_DATA:
+            self.add(ParadigmPoint(
+                name=name,
+                coordinates=coords,
+                examples=examples,
+                notes=notes,
+            ))
 
     def _populate_nl_paradigms(self) -> None:
         """Register FLUX natural language paradigm points."""
-
-        # ─── FLUX Natural Language Paradigms ────────────────────
-
-        self.add(ParadigmPoint(
-            name="zho",
-            coordinates={
-                "state_magnitude": 0.5,
-                "control_explicitness": 0.4,
-                "typing_strength": 0.55,
-                "composition_style": 0.3,
-                "concurrency_model": 0.5,
-                "effect_tracking": 0.35,
-                "naming_style": 0.6,
-                "abstraction_level": 0.7,
-            },
-            examples=["flux_zho", "Mandarin Chinese"],
-            notes=(
-                "Chinese: classifier system = grammatical type system. "
-                "Topic-comment structure = zero-anaphora implicit threading. "
-                "Context-dependent pronoun resolution = confidence-weighted inference. "
-                "Honorific markers → capability annotations."
-            ),
-        ))
-
-        self.add(ParadigmPoint(
-            name="kor",
-            coordinates={
-                "state_magnitude": 0.4,
-                "control_explicitness": 0.5,
-                "typing_strength": 0.5,
-                "composition_style": 0.4,
-                "concurrency_model": 0.6,
-                "effect_tracking": 0.65,
-                "naming_style": 0.75,
-                "abstraction_level": 0.65,
-            },
-            examples=["flux_kor", "Korean"],
-            notes=(
-                "Korean: 7-level honorific system = capability/security hierarchy. "
-                "Speech levels (하십시오체/해요체/해체 etc.) → CAP_REQUIRE levels. "
-                "Subject-honorific + object-honorific → trust-directed communication. "
-                "Particle system (은/는, 이/가) → scope/topic markers."
-            ),
-        ))
-
-        self.add(ParadigmPoint(
-            name="san",
-            coordinates={
-                "state_magnitude": 0.3,
-                "control_explicitness": 0.35,
-                "typing_strength": 0.7,
-                "composition_style": 0.3,
-                "concurrency_model": 0.45,
-                "effect_tracking": 0.6,
-                "naming_style": 0.85,
-                "abstraction_level": 0.8,
-            },
-            examples=["flux_san", "Sanskrit"],
-            notes=(
-                "Sanskrit: 8-case vibhakti system = 8-level scope hierarchy. "
-                "Each case (प्रथमा to संबोधन) maps to a ScopeLevel opcode. "
-                "3 genders + 3 numbers = polymorphic type system. "
-                "Sandhi rules = automatic word-boundary fusion. "
-                "Paninian grammar = world's first formal grammar."
-            ),
-        ))
-
-        self.add(ParadigmPoint(
-            name="deu",
-            coordinates={
-                "state_magnitude": 0.6,
-                "control_explicitness": 0.7,
-                "typing_strength": 0.65,
-                "composition_style": 0.6,
-                "concurrency_model": 0.4,
-                "effect_tracking": 0.4,
-                "naming_style": 0.7,
-                "abstraction_level": 0.55,
-            },
-            examples=["flux_deu", "German"],
-            notes=(
-                "German: 4-case Kasus system (Nominativ/Akkusativ/Dativ/Genitiv) = scope. "
-                "Compound nouns = type composition (Donaudampfschifffahrt...). "
-                "Verb-second (V2) word order = rigid control flow. "
-                "Separable-prefix verbs = deferred computation. "
-                "Gender system (der/die/das) = nominal type annotations."
-            ),
-        ))
-
-        self.add(ParadigmPoint(
-            name="wen",
-            coordinates={
-                "state_magnitude": 0.35,
-                "control_explicitness": 0.25,
-                "typing_strength": 0.45,
-                "composition_style": 0.15,
-                "concurrency_model": 0.35,
-                "effect_tracking": 0.5,
-                "naming_style": 0.3,
-                "abstraction_level": 0.85,
-            },
-            examples=["flux_wen", "Classical Chinese (文言文)"],
-            notes=(
-                "Classical Chinese: extreme information density = minimal syntax. "
-                "Topic-comment = zero-anaphora continuation. "
-                "Confucian 五常 (五德) → capability/trust system (仁義禮智信). "
-                "Sun Tzu 兵法 → attack/defend/advance/retreat opcodes. "
-                "No inflection = positional/pipeline composition. "
-                "S-V-O flexibility = dataflow rather than strict sequence."
-            ),
-        ))
-
-        self.add(ParadigmPoint(
-            name="lat",
-            coordinates={
-                "state_magnitude": 0.45,
-                "control_explicitness": 0.6,
-                "typing_strength": 0.6,
-                "composition_style": 0.45,
-                "concurrency_model": 0.35,
-                "effect_tracking": 0.55,
-                "naming_style": 0.8,
-                "abstraction_level": 0.7,
-            },
-            examples=["flux_lat", "Latin"],
-            notes=(
-                "Latin: 6-case system + 6-tense system = spatial-temporal scope. "
-                "Tenses (Present/Imperfect/Perfect/Pluperfect/Future/Fut.Perfect) "
-                "= temporal aspect opcodes (LOOP_START/ROLLBACK_SAVE/LAZY_DEFER etc.). "
-                "Case system (Nom/Acc/Gen/Dat/Abl/Voc) = scope levels + invocation. "
-                "Word-order freedom = named/positional flexibility. "
-                "Subjunctive mood = modal/confidence system."
-            ),
-        ))
+        for name, coords, examples, notes in _NL_PARADIGM_DATA:
+            self.add(ParadigmPoint(
+                name=name,
+                coordinates=coords,
+                examples=examples,
+                notes=notes,
+            ))
 
     # ── Point Access ────────────────────────────────────────────
 
