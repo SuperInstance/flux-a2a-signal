@@ -1372,40 +1372,65 @@ class UnifiedVocabulary:
         scores: Dict[str, float] = {}
         query_lower = query.lower()
 
-        # 1. Exact term match (highest score)
-        if lang:
-            for (l, t), cids in self._term_index.items():
-                if l == lang and t == query:
-                    for cid in cids:
-                        scores[cid] = scores.get(cid, 0.0) + 10.0
+        self._score_exact_term_match(scores, query, lang)
+        self._score_term_contains_match(scores, query, lang)
+        self._score_concept_id_match(scores, query_lower)
+        self._score_universal_name_match(scores, query_lower)
+        self._score_description_keywords(scores, query)
 
-        # 2. Term contains match
-        if lang:
-            for (l, t), cids in self._term_index.items():
-                if l == lang and query in t:
-                    for cid in cids:
-                        scores[cid] = scores.get(cid, 0.0) + 5.0
+        # Sort by score descending
+        sorted_ids = sorted(scores.keys(), key=lambda c: scores[c], reverse=True)
+        return [self._concepts[cid] for cid in sorted_ids if cid in self._concepts]
 
-        # 3. Concept ID match
+    # ── Search scoring helpers ────────────────────────────────────
+
+    def _score_exact_term_match(
+        self, scores: Dict[str, float], query: str, lang: str
+    ) -> None:
+        """Score +10 for concepts whose term exactly matches *query*."""
+        if not lang:
+            return
+        for (l, t), cids in self._term_index.items():
+            if l == lang and t == query:
+                for cid in cids:
+                    scores[cid] = scores.get(cid, 0.0) + 10.0
+
+    def _score_term_contains_match(
+        self, scores: Dict[str, float], query: str, lang: str
+    ) -> None:
+        """Score +5 for concepts whose term contains *query*."""
+        if not lang:
+            return
+        for (l, t), cids in self._term_index.items():
+            if l == lang and query in t:
+                for cid in cids:
+                    scores[cid] = scores.get(cid, 0.0) + 5.0
+
+    def _score_concept_id_match(
+        self, scores: Dict[str, float], query_lower: str
+    ) -> None:
+        """Score +7 for concepts whose ID contains *query_lower*."""
         for cid in self._concepts:
             if query_lower in cid.lower():
                 scores[cid] = scores.get(cid, 0.0) + 7.0
 
-        # 4. Universal name match
+    def _score_universal_name_match(
+        self, scores: Dict[str, float], query_lower: str
+    ) -> None:
+        """Score +6 for concepts whose universal name contains *query_lower*."""
         for cid, node in self._concepts.items():
             if query_lower in node.universal_name.lower():
                 scores[cid] = scores.get(cid, 0.0) + 6.0
 
-        # 5. Description keyword match
+    def _score_description_keywords(
+        self, scores: Dict[str, float], query: str
+    ) -> None:
+        """Score +1 per keyword found in concept descriptions."""
         for word in query.split():
             w = word.lower().strip(".,;:!?()")
             if len(w) > 2 and w in self._desc_index:
                 for cid in self._desc_index[w]:
                     scores[cid] = scores.get(cid, 0.0) + 1.0
-
-        # Sort by score descending
-        sorted_ids = sorted(scores.keys(), key=lambda c: scores[c], reverse=True)
-        return [self._concepts[cid] for cid in sorted_ids if cid in self._concepts]
 
     def cross_language_synonyms(self, concept_id: str) -> dict[str, list[str]]:
         """Get all native terms for a concept across all languages.
@@ -1799,34 +1824,13 @@ class VocabularyBridge:
             )
 
         ambiguity = len(nodes)
-        all_target_terms: list[tuple[str, float]] = []
         best_concept_id = nodes[0].concept_id
 
-        for node in nodes:
-            # Compute confidence based on type compatibility
-            source_type = self.concept_to_type(node.concept_id, source_lang)
-            target_type = self.concept_to_type(node.concept_id, target_lang)
-            type_compat = source_type.is_compatible_base(target_type.base_type)
+        all_target_terms = self._collect_translated_terms(
+            nodes, source_lang, target_lang,
+        )
+        sorted_terms = self._deduplicate_and_rank_terms(all_target_terms)
 
-            # Language coverage bonus
-            lang_coverage = 1.0 if node.has_language(target_lang) else 0.3
-
-            # Domain specificity bonus
-            domain_bonus = 1.0 if node.semantic_domain in ALL_DOMAINS else 0.5
-
-            confidence = type_compat * lang_coverage * domain_bonus
-
-            for t in node.language_terms.get(target_lang, []):
-                all_target_terms.append((t, confidence))
-
-        # Deduplicate, keeping highest confidence
-        seen: dict[str, float] = {}
-        for t, conf in all_target_terms:
-            if t not in seen or conf > seen[t]:
-                seen[t] = conf
-
-        # Sort by confidence descending
-        sorted_terms = sorted(seen.items(), key=lambda x: x[1], reverse=True)
         target_terms = [t for t, _ in sorted_terms]
         overall_confidence = sorted_terms[0][1] if sorted_terms else 0.0
 
@@ -1844,6 +1848,55 @@ class VocabularyBridge:
             ambiguity=ambiguity,
             notes=notes,
         )
+
+    # ── Translation helpers ───────────────────────────────────────
+
+    def _compute_translation_confidence(
+        self, node: ConceptNode, source_lang: str, target_lang: str
+    ) -> float:
+        """Compute confidence score for translating *node* between languages.
+
+        Combines three factors:
+        - type_compat: base-type compatibility between source and target
+        - lang_coverage: 1.0 if node has target language, else 0.3
+        - domain_bonus: 1.0 if node domain is known, else 0.5
+        """
+        source_type = self.concept_to_type(node.concept_id, source_lang)
+        target_type = self.concept_to_type(node.concept_id, target_lang)
+        type_compat = source_type.is_compatible_base(target_type.base_type)
+        lang_coverage = 1.0 if node.has_language(target_lang) else 0.3
+        domain_bonus = 1.0 if node.semantic_domain in ALL_DOMAINS else 0.5
+        return type_compat * lang_coverage * domain_bonus
+
+    def _collect_translated_terms(
+        self,
+        nodes: list[ConceptNode],
+        source_lang: str,
+        target_lang: str,
+    ) -> list[tuple[str, float]]:
+        """Gather all (target_term, confidence) pairs across *nodes*."""
+        result: list[tuple[str, float]] = []
+        for node in nodes:
+            confidence = self._compute_translation_confidence(
+                node, source_lang, target_lang,
+            )
+            for t in node.language_terms.get(target_lang, []):
+                result.append((t, confidence))
+        return result
+
+    @staticmethod
+    def _deduplicate_and_rank_terms(
+        pairs: list[tuple[str, float]],
+    ) -> list[tuple[str, float]]:
+        """Deduplicate (term, confidence) pairs, keeping highest confidence.
+
+        Returns the pairs sorted by confidence descending.
+        """
+        seen: dict[str, float] = {}
+        for term, conf in pairs:
+            if term not in seen or conf > seen[term]:
+                seen[term] = conf
+        return sorted(seen.items(), key=lambda x: x[1], reverse=True)
 
 
 # ══════════════════════════════════════════════════════════════════

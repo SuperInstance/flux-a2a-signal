@@ -299,56 +299,43 @@ class TypeAlgebra:
             notes="Volume containers: 杯, 瓶",
         ))
 
+    # Declarative table: core noun-cat case equivalence classes.
+    # Each entry: (class_id, name, slot_pairs, degree, notes)
+    _NC_CORE_CASES: List[tuple] = [
+        ("nc_scope_nominative",
+         "Scope: nominative / prathama / nominativus",
+         [("deu", "nominativ"), ("san", "prathama"), ("lat", "nominativus")],
+         PreservationDegree.LOSSLESS,
+         "Subject case across DEU/SAN/LAT: Nominativ, प्रथमा, Nominativus"),
+        ("nc_scope_accusative",
+         "Scope: accusative / dvitiya / accusativus",
+         [("deu", "akkusativ"), ("san", "dvitiya"), ("lat", "accusativus")],
+         PreservationDegree.LOSSLESS,
+         "Object case: Akkusativ, द्वितीया, Accusativus"),
+        ("nc_scope_dative",
+         "Scope: dative / chaturthi / dativus",
+         [("deu", "dativ"), ("san", "chaturthi"), ("lat", "dativus")],
+         PreservationDegree.LOSSLESS,
+         "Recipient case: Dativ, चतुर्थी, Dativus"),
+        ("nc_scope_genitive",
+         "Scope: genitive / shashthi / genitivus",
+         [("deu", "genitiv"), ("san", "shashthi"), ("lat", "genitivus")],
+         PreservationDegree.NEAR_LOSSLESS,
+         "Possessive case: Genitiv, षष्ठी, Genitivus"),
+    ]
+
     def _populate_nc_core_cases(self) -> None:
         """Noun-cat: core case systems (nom, acc, dat, gen)."""
-        self._add_class(TypeEquivalenceClass(
-            class_id="nc_scope_nominative",
-            name="Scope: nominative / prathama / nominativus",
-            slots=frozenset([
-                self._slot("deu", "nominativ"),
-                self._slot("san", "prathama"),
-                self._slot("lat", "nominativus"),
-            ]),
-            degree=PreservationDegree.LOSSLESS,
-            semantic_domain="noun_cat",
-            notes="Subject case across DEU/SAN/LAT: Nominativ, प्रथमा, Nominativus",
-        ))
-        self._add_class(TypeEquivalenceClass(
-            class_id="nc_scope_accusative",
-            name="Scope: accusative / dvitiya / accusativus",
-            slots=frozenset([
-                self._slot("deu", "akkusativ"),
-                self._slot("san", "dvitiya"),
-                self._slot("lat", "accusativus"),
-            ]),
-            degree=PreservationDegree.LOSSLESS,
-            semantic_domain="noun_cat",
-            notes="Object case: Akkusativ, द्वितीया, Accusativus",
-        ))
-        self._add_class(TypeEquivalenceClass(
-            class_id="nc_scope_dative",
-            name="Scope: dative / chaturthi / dativus",
-            slots=frozenset([
-                self._slot("deu", "dativ"),
-                self._slot("san", "chaturthi"),
-                self._slot("lat", "dativus"),
-            ]),
-            degree=PreservationDegree.LOSSLESS,
-            semantic_domain="noun_cat",
-            notes="Recipient case: Dativ, चतुर्थी, Dativus",
-        ))
-        self._add_class(TypeEquivalenceClass(
-            class_id="nc_scope_genitive",
-            name="Scope: genitive / shashthi / genitivus",
-            slots=frozenset([
-                self._slot("deu", "genitiv"),
-                self._slot("san", "shashthi"),
-                self._slot("lat", "genitivus"),
-            ]),
-            degree=PreservationDegree.NEAR_LOSSLESS,
-            semantic_domain="noun_cat",
-            notes="Possessive case: Genitiv, षष्ठी, Genitivus",
-        ))
+        for class_id, name, slot_pairs, degree, notes in self._NC_CORE_CASES:
+            self._add_class(TypeEquivalenceClass(
+                class_id=class_id,
+                name=name,
+                slots=frozenset([self._slot(lang, tag)
+                                 for lang, tag in slot_pairs]),
+                degree=degree,
+                semantic_domain="noun_cat",
+                notes=notes,
+            ))
 
     def _populate_nc_extra_cases(self) -> None:
         """Noun-cat: extra case systems (instrumental, locative, vocative, generic)."""

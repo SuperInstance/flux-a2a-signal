@@ -1325,72 +1325,72 @@ class FluxDenotation:
         confidence: float,
         lang: str,
     ) -> FluxFunction:
-        """Dispatch to the appropriate denotation builder."""
+        """Dispatch to the appropriate denotation builder.
 
-        # --- Arithmetic ---
+        Arithmetic and comparison opcodes share grouped handlers (they need
+        the *op* string to select the primitive).  All remaining opcodes
+        live in :meth:`_build_op_dispatch_table`, which maps each opcode
+        name to a ``(params, confidence) -> FluxFunction`` callable.  This
+        includes "special" opcodes like ``seq``, ``confidence``, and
+        ``literal``, wrapped in lambdas so they conform to the uniform
+        signature.
+        """
+
+        # --- Arithmetic / comparison (grouped by shared signature) ---
         if op in ("add", "sub", "mul", "div", "mod"):
             return self._denote_arithmetic(op, params, confidence)
         if op in ("eq", "neq", "lt", "lte", "gt", "gte"):
             return self._denote_comparison(op, params, confidence)
 
-        # --- Control flow ---
-        if op == "seq":
-            body = params.get("body", [])
-            return self.denote_sequence(body)
-        if op == "if":
-            return self._denote_if(params, confidence)
-        if op == "loop":
-            return self._denote_loop(params, confidence)
-        if op == "while":
-            return self._denote_while(params, confidence)
-        if op == "match":
-            return self._denote_match(params, confidence)
-
-        # --- Variables ---
-        if op == "let":
-            return self._denote_let(params, confidence)
-        if op == "get":
-            return self._denote_get(params, confidence)
-        if op == "set":
-            return self._denote_set(params, confidence)
-
-        # --- Branching ---
-        if op == "branch":
-            return self._denote_branch(params, confidence)
-        if op == "fork":
-            return self._denote_fork(params, confidence)
-        if op == "co_iterate":
-            return self._denote_co_iterate(params, confidence)
-
-        # --- Agent communication ---
-        if op == "tell":
-            return self._denote_tell(params, confidence)
-        if op == "ask":
-            return self._denote_ask(params, confidence)
-        if op == "broadcast":
-            return self._denote_broadcast(params, confidence)
-        if op == "delegate":
-            return self._denote_delegate(params, confidence)
-
-        # --- Confidence ---
-        if op == "confidence":
-            return self._denote_confidence(params)
-
-        # --- Literal / pass-through ---
-        if op == "literal":
-            return ConstFunc(params.get("value"), confidence)
-        if op == "concat":
-            return self._denote_concat(params, confidence)
-
-        # --- Paradigm opcodes ---
-        if op == "discuss":
-            return self._denote_discuss(params, confidence)
+        # --- Unified dispatch table (params, confidence) handlers ---
+        handler = self._build_op_dispatch_table().get(op)
+        if handler is not None:
+            return handler(params, confidence)
 
         # Unknown opcode
         return PureFunc(lambda s, c, k: FluxResult(
             value=None, confidence=0.0, new_state=s,
             error=f"Unknown opcode in denotation: {op}",
         ))
+
+    def _build_op_dispatch_table(
+        self,
+    ) -> Dict[str, Callable[[Dict[str, Any], float], FluxFunction]]:
+        """Build the dispatch table mapping opcodes to (params, confidence) handlers.
+
+        Every handler in this table shares the signature
+        ``(params: Dict[str, Any], confidence: float) -> FluxFunction``.
+        Opcodes whose native signature differs (``seq``, ``confidence``,
+        ``literal``) are wrapped in lambdas to conform.
+        """
+        return {
+            # --- Control flow ---
+            "if": self._denote_if,
+            "loop": self._denote_loop,
+            "while": self._denote_while,
+            "match": self._denote_match,
+            # --- Variables ---
+            "let": self._denote_let,
+            "get": self._denote_get,
+            "set": self._denote_set,
+            # --- Branching ---
+            "branch": self._denote_branch,
+            "fork": self._denote_fork,
+            "co_iterate": self._denote_co_iterate,
+            # --- Agent communication ---
+            "tell": self._denote_tell,
+            "ask": self._denote_ask,
+            "broadcast": self._denote_broadcast,
+            "delegate": self._denote_delegate,
+            # --- Concat ---
+            "concat": self._denote_concat,
+            # --- Paradigm opcodes ---
+            "discuss": self._denote_discuss,
+            # --- Special-case opcodes (wrapped to uniform signature) ---
+            "seq": lambda p, _c: self.denote_sequence(p.get("body", [])),
+            "confidence": lambda p, _c: self._denote_confidence(p),
+            "literal": lambda p, c: ConstFunc(p.get("value"), c),
+        }
 
     # ------------------------------------------------------------------
     # §3.2  Arithmetic denotations
@@ -2162,6 +2162,74 @@ def denote_and_run(
     )
 
 
+def _check_compositionality(
+    fd: FluxDenotation,
+    props: "SemanticProperties",
+    state: FluxState,
+    ctx: FluxContext,
+    caps: CapSet,
+) -> Tuple[str, bool, str]:
+    """Verify compositionality property."""
+    ok, msg = props.verify_compositionality(
+        fd, {"op": "let", "name": "x", "value": 10}, {"op": "get", "name": "x"},
+        state, ctx, caps,
+    )
+    return ("compositionality", ok, msg)
+
+
+def _check_confidence_monotonicity(
+    fd: FluxDenotation,
+    props: "SemanticProperties",
+    state: FluxState,
+    ctx: FluxContext,
+    caps: CapSet,
+) -> Tuple[str, bool, str]:
+    """Verify confidence monotonicity property."""
+    ok, msg = props.verify_confidence_monotonicity(
+        fd,
+        [{"op": "literal", "value": 42}],
+        state, ctx, caps,
+    )
+    return ("confidence_monotonicity", ok, msg)
+
+
+def _check_capability_monotonicity(
+    fd: FluxDenotation,
+    props: "SemanticProperties",
+    state: FluxState,
+    ctx: FluxContext,
+    caps: CapSet,
+) -> Tuple[str, bool, str]:
+    """Verify capability monotonicity property."""
+    ok, msg = props.verify_capability_monotonicity(
+        fd,
+        {"op": "tell", "to": "agent", "message": "hello"},
+        state, ctx,
+        CapSet.empty(),
+        CapSet.full(),
+    )
+    return ("capability_monotonicity", ok, msg)
+
+
+def _check_context_sensitivity(
+    fd: FluxDenotation,
+    props: "SemanticProperties",
+    state: FluxState,
+    ctx: FluxContext,
+    caps: CapSet,
+) -> Tuple[str, bool, str]:
+    """Verify context sensitivity property."""
+    ok, msg = props.verify_context_sensitivity(
+        fd,
+        {"op": "literal", "value": 42},
+        state,
+        FluxContext(language="zho"),
+        FluxContext(language="deu"),
+        caps,
+    )
+    return ("context_sensitivity", ok, msg)
+
+
 def verify_all_properties(
     denotation: Optional[FluxDenotation] = None,
 ) -> Dict[str, Tuple[bool, str]]:
@@ -2173,42 +2241,15 @@ def verify_all_properties(
     ctx = FluxContext(language="flux")
     caps = CapSet.full()
 
-    results = {}
+    results: Dict[str, Tuple[bool, str]] = {}
 
-    # Compositionality
-    ok, msg = props.verify_compositionality(
-        fd, {"op": "let", "name": "x", "value": 10}, {"op": "get", "name": "x"},
-        state, ctx, caps,
-    )
-    results["compositionality"] = (ok, msg)
-
-    # Confidence monotonicity
-    ok, msg = props.verify_confidence_monotonicity(
-        fd,
-        [{"op": "literal", "value": 42}],
-        state, ctx, caps,
-    )
-    results["confidence_monotonicity"] = (ok, msg)
-
-    # Capability monotonicity
-    ok, msg = props.verify_capability_monotonicity(
-        fd,
-        {"op": "tell", "to": "agent", "message": "hello"},
-        state, ctx,
-        CapSet.empty(),
-        CapSet.full(),
-    )
-    results["capability_monotonicity"] = (ok, msg)
-
-    # Context sensitivity
-    ok, msg = props.verify_context_sensitivity(
-        fd,
-        {"op": "literal", "value": 42},
-        state,
-        FluxContext(language="zho"),
-        FluxContext(language="deu"),
-        caps,
-    )
-    results["context_sensitivity"] = (ok, msg)
+    for check_fn in (
+        _check_compositionality,
+        _check_confidence_monotonicity,
+        _check_capability_monotonicity,
+        _check_context_sensitivity,
+    ):
+        name, ok, msg = check_fn(fd, props, state, ctx, caps)
+        results[name] = (ok, msg)
 
     return results

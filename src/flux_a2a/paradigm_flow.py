@@ -742,6 +742,75 @@ def _report_section_costs(
     lines.append("")
 
 
+def _report_single_bridge_analysis(
+    lines: List[str],
+    flow: ParadigmFlow,
+    lattice: ParadigmLattice,
+    src_name: str,
+    tgt_name: str,
+) -> None:
+    """Write a single highlighted bridge analysis sub-section."""
+    src = lattice.get(src_name)
+    tgt = lattice.get(tgt_name)
+    sim = flow.simulate_bridge(src, tgt)
+
+    lines.append(f"### {src_name.upper()} → {tgt_name.upper()} Bridge")
+    lines.append("")
+    lines.append(f"**Bridge quality:** {sim.natural_bridge_quality:.1%}")
+    lines.append(f"**Total cost:** {sim.cost.total_cost:.3f}")
+    if sim.via_intermediate:
+        lines.append(f"**Recommended via:** {sim.via_intermediate}")
+    lines.append("")
+
+    _report_bridge_dimension_analysis(lines, sim)
+    _report_bridge_constructs(lines, sim)
+    _report_bridge_nl_notes(lines, src_name, tgt_name)
+    lines.append("")
+
+
+def _report_bridge_dimension_analysis(
+    lines: List[str], sim: BridgeSimulation,
+) -> None:
+    """Write the dimension analysis bullets for a bridge simulation."""
+    lines.append("**Dimension analysis:**")
+    lines.append("")
+    for db in sim.cost.dimension_bridges:
+        indicator = {"lossy": "📉", "overhead": "📈", "direct": "➡️", "gain": "🆙"}.get(
+            db.mode, "?")
+        lines.append(
+            f"- {indicator} **{db.dimension}**: {db.description} "
+            f"(severity: {db.severity:.2f})"
+        )
+    lines.append("")
+
+
+def _report_bridge_constructs(
+    lines: List[str], sim: BridgeSimulation,
+) -> None:
+    """Write the constructs lost/gained/transformed lines."""
+    if sim.constructs_lost:
+        lines.append(f"**Constructs lost:** {', '.join(sim.constructs_lost[:8])}")
+        lines.append("")
+    if sim.constructs_gained:
+        lines.append(f"**Constructs gained:** {', '.join(sim.constructs_gained[:8])}")
+        lines.append("")
+    if sim.constructs_transformed:
+        lines.append(f"**Constructs transformed:** {', '.join(sim.constructs_transformed)}")
+        lines.append("")
+
+
+def _report_bridge_nl_notes(
+    lines: List[str], src_name: str, tgt_name: str,
+) -> None:
+    """Write NL-specific bridge notes for source and target."""
+    src_info = NL_CONSTRUCTS.get(src_name, {})
+    tgt_info = NL_CONSTRUCTS.get(tgt_name, {})
+    if src_info.get("bridge_notes"):
+        lines.append(f"*{src_name}:* {src_info['bridge_notes']}")
+    if tgt_info.get("bridge_notes"):
+        lines.append(f"*{tgt_name}:* {tgt_info['bridge_notes']}")
+
+
 def _report_section_key_bridges(
     lines: List[str], flow: ParadigmFlow, lattice: ParadigmLattice,
 ) -> None:
@@ -749,54 +818,13 @@ def _report_section_key_bridges(
     lines.append("## 4. Key Bridge Analyses")
     lines.append("")
 
-    # Highlighted bridges
     highlighted = [
         ("zho", "deu"),
         ("kor", "san"),
         ("wen", "lat"),
     ]
     for src_name, tgt_name in highlighted:
-        src = lattice.get(src_name)
-        tgt = lattice.get(tgt_name)
-        sim = flow.simulate_bridge(src, tgt)
-
-        lines.append(f"### {src_name.upper()} → {tgt_name.upper()} Bridge")
-        lines.append("")
-        lines.append(f"**Bridge quality:** {sim.natural_bridge_quality:.1%}")
-        lines.append(f"**Total cost:** {sim.cost.total_cost:.3f}")
-        if sim.via_intermediate:
-            lines.append(f"**Recommended via:** {sim.via_intermediate}")
-        lines.append("")
-
-        lines.append("**Dimension analysis:**")
-        lines.append("")
-        for db in sim.cost.dimension_bridges:
-            indicator = {"lossy": "📉", "overhead": "📈", "direct": "➡️", "gain": "🆙"}.get(
-                db.mode, "?")
-            lines.append(
-                f"- {indicator} **{db.dimension}**: {db.description} "
-                f"(severity: {db.severity:.2f})"
-            )
-        lines.append("")
-
-        if sim.constructs_lost:
-            lines.append(f"**Constructs lost:** {', '.join(sim.constructs_lost[:8])}")
-            lines.append("")
-        if sim.constructs_gained:
-            lines.append(f"**Constructs gained:** {', '.join(sim.constructs_gained[:8])}")
-            lines.append("")
-        if sim.constructs_transformed:
-            lines.append(f"**Constructs transformed:** {', '.join(sim.constructs_transformed)}")
-            lines.append("")
-
-        # NL-specific notes
-        src_info = NL_CONSTRUCTS.get(src_name, {})
-        tgt_info = NL_CONSTRUCTS.get(tgt_name, {})
-        if src_info.get("bridge_notes"):
-            lines.append(f"*{src_name}:* {src_info['bridge_notes']}")
-        if tgt_info.get("bridge_notes"):
-            lines.append(f"*{tgt_name}:* {tgt_info['bridge_notes']}")
-        lines.append("")
+        _report_single_bridge_analysis(lines, flow, lattice, src_name, tgt_name)
 
 
 def _report_section_routing(

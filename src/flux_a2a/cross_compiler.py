@@ -1558,18 +1558,12 @@ class CrossCompiler:
         source_types = self._parse_source(source, from_lang)
 
         # Validate languages
-        self._validate_lang(from_lang)
-        self._validate_lang(to_lang)
+        self._validate_language_pair(from_lang, to_lang)
 
-        if from_lang == to_lang:
-            return CompilationResult(
-                target_code=CodeEmitter.emit_program(source_types, to_lang),
-                source_types=source_types,
-                target_types=list(source_types),
-                route=[from_lang, to_lang],
-                information_preserved=1.0,
-                warnings=["Source and target are the same language"],
-            )
+        # Same-language shortcut
+        same_result = self._compile_same_language(source_types, from_lang, to_lang)
+        if same_result is not None:
+            return same_result
 
         # Decide routing strategy
         multi_result = self._try_multi_hop_route(
@@ -1580,6 +1574,29 @@ class CrossCompiler:
 
         # Direct compilation
         return self._compile_direct(source_types, from_lang, to_lang)
+
+    def _compile_same_language(
+        self,
+        source_types: list[FluxType],
+        to_lang: LangTag,
+        from_lang: LangTag,
+    ) -> Optional[CompilationResult]:
+        """Return an identity result when source and target languages match.
+
+        Returns ``None`` when the languages differ, so the caller can fall
+        through to normal compilation.
+        """
+        if from_lang != to_lang:
+            return None
+
+        return CompilationResult(
+            target_code=CodeEmitter.emit_program(source_types, to_lang),
+            source_types=source_types,
+            target_types=list(source_types),
+            route=[from_lang, to_lang],
+            information_preserved=1.0,
+            warnings=["Source and target are the same language"],
+        )
 
     def _try_multi_hop_route(
         self,
@@ -1831,50 +1848,96 @@ class CrossCompiler:
         rule: TranslationRule,
     ) -> list[WitnessConstraint]:
         """Build witness constraints for a rule-based translation."""
-        constraints: list[WitnessConstraint] = []
+        return [
+            *self._build_identity_constraints(rule),
+            *self._build_paradigm_constraints(
+                from_lang, to_lang, source_type, target_type,
+            ),
+            *self._build_quality_constraints(target_type),
+        ]
 
-        # C1: Rule was applied
-        constraints.append(WitnessConstraint(
+    def _build_identity_constraints(
+        self, rule: TranslationRule,
+    ) -> list[WitnessConstraint]:
+        """Build identity-related constraints (rule match, transform kind)."""
+        return [
+            self._constraint_rule_applied(rule),
+            self._constraint_transform_kind(rule),
+        ]
+
+    def _build_paradigm_constraints(
+        self,
+        from_lang: LangTag,
+        to_lang: LangTag,
+        source_type: FluxType,
+        target_type: FluxType,
+    ) -> list[WitnessConstraint]:
+        """Build cross-paradigm constraints (paradigm difference, type distance)."""
+        return [
+            self._constraint_paradigm_difference(from_lang, to_lang),
+            self._constraint_base_type_distance(source_type, target_type),
+        ]
+
+    def _build_quality_constraints(
+        self, target_type: FluxType,
+    ) -> list[WitnessConstraint]:
+        """Build quality constraints (confidence floor)."""
+        return [self._constraint_confidence_floor(target_type)]
+
+    @staticmethod
+    def _constraint_rule_applied(rule: TranslationRule) -> WitnessConstraint:
+        """C1: Rule was applied."""
+        return WitnessConstraint(
             name="rule_applied",
             expected=rule.rule_id,
             actual=rule.rule_id,
             satisfied=True,
-        ))
+        )
 
-        # C2: Source and target differ
-        constraints.append(WitnessConstraint(
+    @staticmethod
+    def _constraint_paradigm_difference(
+        from_lang: LangTag, to_lang: LangTag,
+    ) -> WitnessConstraint:
+        """C2: Source and target differ."""
+        return WitnessConstraint(
             name="paradigm_difference",
             expected="different",
             actual="different" if from_lang != to_lang else "same",
             satisfied=from_lang != to_lang,
-        ))
+        )
 
-        # C3: Base type distance check
+    @staticmethod
+    def _constraint_base_type_distance(
+        source_type: FluxType, target_type: FluxType,
+    ) -> WitnessConstraint:
+        """C3: Base type distance check."""
         dist = source_type.base_type.spectrum_distance(target_type.base_type)
-        constraints.append(WitnessConstraint(
+        return WitnessConstraint(
             name="base_type_distance",
             expected=0,
             actual=int(dist),
             satisfied=dist <= 2,
-        ))
+        )
 
-        # C4: Confidence floor
-        constraints.append(WitnessConstraint(
+    @staticmethod
+    def _constraint_confidence_floor(target_type: FluxType) -> WitnessConstraint:
+        """C4: Confidence floor."""
+        return WitnessConstraint(
             name="confidence_floor",
             expected=">=0.2",
             actual=target_type.confidence,
             satisfied=target_type.confidence >= 0.2,
-        ))
+        )
 
-        # C5: Transform kind recorded
-        constraints.append(WitnessConstraint(
+    @staticmethod
+    def _constraint_transform_kind(rule: TranslationRule) -> WitnessConstraint:
+        """C5: Transform kind recorded."""
+        return WitnessConstraint(
             name="transform_kind",
             expected=rule.transform_kind.value,
             actual=rule.transform_kind.value,
             satisfied=True,
-        ))
-
-        return constraints
+        )
 
     @staticmethod
     def _preservation_from_factor(confidence_factor: float) -> PreservationDegree:
@@ -1930,6 +1993,12 @@ class CrossCompiler:
                     ],
                 ))
         return types
+
+    @staticmethod
+    def _validate_language_pair(from_lang: LangTag, to_lang: LangTag) -> None:
+        """Validate both source and target languages."""
+        CrossCompiler._validate_lang(from_lang)
+        CrossCompiler._validate_lang(to_lang)
 
     @staticmethod
     def _validate_lang(lang: LangTag) -> None:

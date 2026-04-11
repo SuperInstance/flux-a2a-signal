@@ -407,9 +407,39 @@ class EvolutionEngine:
         # Extract op sequence and lang tags
         op_sequence, lang_tags, raw_forms = self._parse_program_info(program)
 
-        # Create observation
-        program_hash = self._hash_ops(op_sequence)
-        observation = NLObservation(
+        # Create and record observation
+        observation = self._create_observation(
+            program_hash=self._hash_ops(op_sequence),
+            op_sequence=op_sequence,
+            lang_tags=lang_tags,
+            raw_forms=raw_forms,
+            execution_time_ms=execution_time_ms,
+            result_confidence=result_confidence,
+            variable_types=variable_types,
+            branch_decisions=branch_decisions,
+            error_occurred=error_occurred,
+            source_agent=source_agent,
+        )
+        self._record_observation_effects(
+            observation, op_sequence, raw_forms,
+            execution_time_ms, result_confidence, lang_tags,
+        )
+
+    def _create_observation(
+        self,
+        program_hash: str,
+        op_sequence: list[str],
+        lang_tags: list[str],
+        raw_forms: list[str],
+        execution_time_ms: float,
+        result_confidence: float,
+        variable_types: Optional[dict[str, str]],
+        branch_decisions: Optional[list[dict[str, Any]]],
+        error_occurred: bool,
+        source_agent: str,
+    ) -> NLObservation:
+        """Create an NLObservation from parsed program info."""
+        return NLObservation(
             program_hash=program_hash,
             op_sequence=op_sequence,
             lang_tags=lang_tags,
@@ -422,13 +452,21 @@ class EvolutionEngine:
             meta={"raw_forms": raw_forms},
         )
 
-        # Store observation and update counters
-        self._store_observation(observation, error_occurred, execution_time_ms, result_confidence)
-
-        # Update hot paths
+    def _record_observation_effects(
+        self,
+        observation: NLObservation,
+        op_sequence: list[str],
+        raw_forms: list[str],
+        execution_time_ms: float,
+        result_confidence: float,
+        lang_tags: list[str],
+    ) -> None:
+        """Record observation side-effects: storage, hot paths, NL patterns."""
+        self._store_observation(
+            observation, observation.error_occurred,
+            execution_time_ms, result_confidence,
+        )
         self._update_hot_paths(op_sequence, execution_time_ms, result_confidence, lang_tags)
-
-        # Update NL patterns from raw forms
         for raw in raw_forms:
             self._update_nl_patterns(raw, op_sequence, result_confidence, lang_tags)
 
@@ -980,24 +1018,9 @@ class EvolutionEngine:
 
         # Get hot paths
         hot_paths = self.hot_path()
-        new_compiled = 0
 
         # Auto-specialize hot paths
-        for hp in hot_paths:
-            fp = self._hash_ops(list(hp.sequence))
-            if fp not in self._compiled_patterns and hp.frequency >= self._hot_threshold:
-                pattern = NLPattern(
-                    fingerprint=fp,
-                    resolved_ops=list(hp.sequence),
-                    frequency=hp.frequency,
-                    confidence_avg=(
-                        sum(hp.confidence_scores) / len(hp.confidence_scores)
-                        if hp.confidence_scores else 1.0
-                    ),
-                    lang=hp.lang_affinity,
-                )
-                self.specialize(pattern)
-                new_compiled += 1
+        new_compiled = self._auto_specialize_hot_paths(hot_paths)
 
         # Suggest optimizations
         optimizations = self.suggest_optimization()
@@ -1019,6 +1042,29 @@ class EvolutionEngine:
             "paradigm_shifts": paradigm_shifts,
             "top_optimizations": [o.to_dict() for o in optimizations[:5]],
         }
+
+    def _auto_specialize_hot_paths(self, hot_paths: list) -> int:
+        """Auto-specialize hot paths exceeding the frequency threshold.
+
+        Returns the number of newly compiled patterns.
+        """
+        new_compiled = 0
+        for hp in hot_paths:
+            fp = self._hash_ops(list(hp.sequence))
+            if fp not in self._compiled_patterns and hp.frequency >= self._hot_threshold:
+                pattern = NLPattern(
+                    fingerprint=fp,
+                    resolved_ops=list(hp.sequence),
+                    frequency=hp.frequency,
+                    confidence_avg=(
+                        sum(hp.confidence_scores) / len(hp.confidence_scores)
+                        if hp.confidence_scores else 1.0
+                    ),
+                    lang=hp.lang_affinity,
+                )
+                self.specialize(pattern)
+                new_compiled += 1
+        return new_compiled
 
     # ------------------------------------------------------------------
     # Internal Methods

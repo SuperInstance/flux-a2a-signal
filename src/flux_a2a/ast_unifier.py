@@ -910,6 +910,78 @@ class ASTUnifier:
 
         return None
 
+    # Ops that pass operands through as application children
+    _PASSTHROUGH_OPS = frozenset({
+        "print", "tell", "ask", "delegate", "broadcast",
+        "mov", "load", "store",
+    })
+
+    # Ops that pass operands through but normalize the operation name
+    _NORMALIZED_PASSTHROUGH_OPS: dict[str, str] = {
+        **{op: op for op in _COMPOUND_OPS},
+        "cmp": "cmp", "icmp": "cmp",
+    }
+
+    # Ops with no operands (DEU-specific protocol ops)
+    _PROTOCOL_OPS = frozenset({
+        "defer", "cap_check", "scope_push", "scope_pop",
+        "execute_deferred", "cont_prepare", "cont_complete",
+    })
+
+    def _convert_passthrough_instr(
+        self,
+        op: str,
+        operands: list[Any],
+        source_lang: str,
+        meta: dict[str, Any],
+        instr: NativeInstruction,
+    ) -> UnifiedASTNode | None:
+        """Convert ops that map operands directly to application children.
+
+        Handles IO/agent protocol ops, compound ops, memory ops.
+        Returns None if *op* does not match any passthrough category.
+        """
+        if op in self._PASSTHROUGH_OPS:
+            children = [self._operand_to_node(o, source_lang) for o in operands]
+            return UnifiedASTNode.application(
+                op, *children, **meta, original=instr.opcode)
+
+        if op in self._NORMALIZED_PASSTHROUGH_OPS:
+            norm_op = self._NORMALIZED_PASSTHROUGH_OPS[op]
+            children = [self._operand_to_node(o, source_lang) for o in operands]
+            return UnifiedASTNode.application(
+                norm_op, *children, **meta, original=instr.opcode)
+
+        if op in self._PROTOCOL_OPS:
+            return UnifiedASTNode.application(op, **meta,
+                                              original=instr.opcode)
+
+        return None
+
+    def _convert_unary_instr(
+        self,
+        op: str,
+        operands: list[Any],
+        source_lang: str,
+        meta: dict[str, Any],
+        instr: NativeInstruction,
+    ) -> UnifiedASTNode | None:
+        """Convert a unary operation instruction.
+
+        Handles INC R0, DEC R1, etc.  Returns None if *op* is not unary.
+        """
+        if op not in _UNARY_OPS:
+            return None
+
+        target = operands[0] if operands else None
+        return UnifiedASTNode.application(
+            op,
+            self._operand_to_node(target, source_lang) if target is not None
+            else UnifiedASTNode.nop(),
+            **meta,
+            original=instr.opcode,
+        )
+
     def _convert_simple_app_instr(
         self,
         op: str,
@@ -924,46 +996,15 @@ class ASTUnifier:
         comparison ops, and DEU-specific ops.  Returns None if *op* does not
         match any of these categories.
         """
-        # Print / TELL / ASK / BROADCAST
-        if op in ("print", "tell", "ask", "delegate", "broadcast"):
-            children = [self._operand_to_node(o, source_lang) for o in operands]
-            return UnifiedASTNode.application(
-                op, *children, **meta, original=instr.opcode)
+        # Try unary first (single-operand with special handling)
+        node = self._convert_unary_instr(op, operands, source_lang, meta, instr)
+        if node is not None:
+            return node
 
-        # Unary operations: INC R0, DEC R1, etc.
-        if op in _UNARY_OPS:
-            target = operands[0] if operands else None
-            return UnifiedASTNode.application(
-                op,
-                self._operand_to_node(target, source_lang) if target is not None
-                else UnifiedASTNode.nop(),
-                **meta,
-                original=instr.opcode,
-            )
-
-        # Compound operations: sum_range, factorial
-        if op in _COMPOUND_OPS:
-            children = [self._operand_to_node(o, source_lang) for o in operands]
-            return UnifiedASTNode.application(op, *children, **meta,
-                                              original=instr.opcode)
-
-        # MOV / LOAD / STORE: register operations
-        if op in ("mov", "load", "store"):
-            children = [self._operand_to_node(o, source_lang) for o in operands]
-            return UnifiedASTNode.application(op, *children, **meta,
-                                              original=instr.opcode)
-
-        # Comparison
-        if op in ("cmp", "icmp"):
-            children = [self._operand_to_node(o, source_lang) for o in operands]
-            return UnifiedASTNode.application("cmp", *children, **meta,
-                                              original=instr.opcode)
-
-        # DEU-specific: DEFER, CAP_CHECK, etc.
-        if op in ("defer", "cap_check", "scope_push", "scope_pop",
-                  "execute_deferred", "cont_prepare", "cont_complete"):
-            return UnifiedASTNode.application(op, **meta,
-                                              original=instr.opcode)
+        # Try passthrough (operands → children)
+        node = self._convert_passthrough_instr(op, operands, source_lang, meta, instr)
+        if node is not None:
+            return node
 
         return None
 
@@ -1199,6 +1240,50 @@ class ASTUnifier:
         # Both branches but different types → moderate penalty
         return 0.5
 
+    def _distance_literal(
+        self, a: UnifiedASTNode, b: UnifiedASTNode, weight: float,
+    ) -> float:
+        """Distance between two LITERAL nodes."""
+        a_val = a.metadata.get("value")
+        b_val = b.metadata.get("value")
+        if a_val == b_val:
+            return 0.0
+        if isinstance(a_val, (int, float)) and isinstance(b_val, (int, float)):
+            mag = max(abs(a_val), abs(b_val), 1)
+            return min(abs(a_val - b_val) / mag, 1.0) * weight
+        return 0.7 * weight
+
+    def _distance_variable(
+        self, a: UnifiedASTNode, b: UnifiedASTNode, weight: float,
+    ) -> float:
+        """Distance between two VARIABLE nodes."""
+        a_name = a.metadata.get("name", "")
+        b_name = b.metadata.get("name", "")
+        if a_name == b_name:
+            return 0.0
+        return 0.3 * weight
+
+    def _distance_application(
+        self, a: UnifiedASTNode, b: UnifiedASTNode, depth: int, weight: float,
+    ) -> float:
+        """Distance between two APPLICATION nodes."""
+        a_op = a.metadata.get("operation", "?")
+        b_op = b.metadata.get("operation", "?")
+        op_penalty = 0.6 * weight if a_op != b_op else 0.0
+        child_dist = self._children_distance(a.children, b.children, depth + 1)
+        return min(op_penalty + child_dist * 0.5, 1.0)
+
+    def _distance_child_only(
+        self, a: UnifiedASTNode, b: UnifiedASTNode, depth: int,
+        multiplier: float = 1.0,
+    ) -> float:
+        """Distance for node types that only differ by their children.
+
+        Used by SEQUENCE, CONDITIONAL, and LOOP nodes.
+        """
+        child_dist = self._children_distance(a.children, b.children, depth + 1)
+        return child_dist * multiplier
+
     def _distance_same_type(
         self,
         a: UnifiedASTNode,
@@ -1209,49 +1294,19 @@ class ASTUnifier:
         weight = 1.0 / (1.0 + depth * 0.1)  # Decay weight with depth
 
         if a.node_type == NodeKind.LITERAL:
-            a_val = a.metadata.get("value")
-            b_val = b.metadata.get("value")
-            if a_val == b_val:
-                return 0.0
-            if isinstance(a_val, (int, float)) and isinstance(b_val, (int, float)):
-                # Numeric distance normalized by magnitude
-                mag = max(abs(a_val), abs(b_val), 1)
-                return min(abs(a_val - b_val) / mag, 1.0) * weight
-            return 0.7 * weight
+            return self._distance_literal(a, b, weight)
 
         if a.node_type == NodeKind.VARIABLE:
-            a_name = a.metadata.get("name", "")
-            b_name = b.metadata.get("name", "")
-            if a_name == b_name:
-                return 0.0
-            # Different variables but same type → small penalty
-            return 0.3 * weight
+            return self._distance_variable(a, b, weight)
 
         if a.node_type == NodeKind.APPLICATION:
-            a_op = a.metadata.get("operation", "?")
-            b_op = b.metadata.get("operation", "?")
-
-            # Operation mismatch
-            if a_op != b_op:
-                op_penalty = 0.6 * weight
-            else:
-                op_penalty = 0.0
-
-            # Child distance
-            child_dist = self._children_distance(a.children, b.children,
-                                                  depth + 1)
-
-            return min(op_penalty + child_dist * 0.5, 1.0)
+            return self._distance_application(a, b, depth, weight)
 
         if a.node_type == NodeKind.SEQUENCE:
-            child_dist = self._children_distance(a.children, b.children,
-                                                  depth + 1)
-            return child_dist
+            return self._distance_child_only(a, b, depth)
 
         if a.node_type in (NodeKind.CONDITIONAL, NodeKind.LOOP):
-            child_dist = self._children_distance(a.children, b.children,
-                                                  depth + 1)
-            return child_dist * 0.7
+            return self._distance_child_only(a, b, depth, multiplier=0.7)
 
         # NOP, HALT, UNKNOWN — same type = same
         return 0.0
