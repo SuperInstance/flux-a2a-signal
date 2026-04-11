@@ -442,35 +442,40 @@ class DebateStrategy(DiscussionStrategy):
     def process_turn(self, turn: DiscussionTurn) -> None:
         """Process a debate turn, tracking thesis/antithesis/synthesis."""
         self.add_turn(turn)
-
-        # Track argument points by stance and content type
-        if isinstance(turn.content, dict):
-            ctype = turn.content.get("type", "")
-            point = turn.content.get("argument", turn.content.get("point", ""))
-
-            # Check content type FIRST, before stance-based routing
-            if ctype == "concession":
-                self.concession_count += 1
-                if point:
-                    self.thesis_points.append(str(point))
-            elif ctype == "synthesis":
-                self.synthesis_candidates.append(str(point))
-            elif point:
-                if turn.stance == "pro":
-                    self.thesis_points.append(str(point))
-                elif turn.stance == "con":
-                    self.antithesis_points.append(str(point))
-
-        # Update agent position confidence
-        if turn.agent_id in self._positions:
-            pos = self._positions[turn.agent_id]
-            pos.confidence = turn.confidence
-            if isinstance(turn.content, dict) and "position_vector" in turn.content:
-                pos.approach = turn.content["position_vector"]
-
+        self._track_debate_arguments(turn)
+        self._update_debate_position(turn)
         # Check for phase transitions
         if self.concession_count >= 2 and self.current_phase == Phase.ARGUE:
             self.current_phase = Phase.SYNTHESIZE
+
+    def _track_debate_arguments(self, turn: DiscussionTurn) -> None:
+        """Track argument points by stance and content type."""
+        if not isinstance(turn.content, dict):
+            return
+        ctype = turn.content.get("type", "")
+        point = turn.content.get("argument", turn.content.get("point", ""))
+
+        # Check content type FIRST, before stance-based routing
+        if ctype == "concession":
+            self.concession_count += 1
+            if point:
+                self.thesis_points.append(str(point))
+        elif ctype == "synthesis":
+            self.synthesis_candidates.append(str(point))
+        elif point:
+            if turn.stance == "pro":
+                self.thesis_points.append(str(point))
+            elif turn.stance == "con":
+                self.antithesis_points.append(str(point))
+
+    def _update_debate_position(self, turn: DiscussionTurn) -> None:
+        """Update agent position confidence based on turn."""
+        if turn.agent_id not in self._positions:
+            return
+        pos = self._positions[turn.agent_id]
+        pos.confidence = turn.confidence
+        if isinstance(turn.content, dict) and "position_vector" in turn.content:
+            pos.approach = turn.content["position_vector"]
 
     def check_completion(self) -> tuple[bool, DiscussionOutcome]:
         """Check if debate has reached resolution."""
@@ -513,39 +518,51 @@ class DebateStrategy(DiscussionStrategy):
     ) -> tuple[Any, float, str]:
         """Build decision, confidence, and reasoning for debate outcome."""
         if outcome == DiscussionOutcome.CONSENSUS and self.synthesis_candidates:
-            decision = {
-                "type": "synthesis",
-                "thesis_points": self.thesis_points,
-                "antithesis_points": self.antithesis_points,
-                "synthesis": self.synthesis_candidates[-1],
-            }
-            confidence = _safe_mean([t.confidence for t in self.turns[-3:]])
-            reasoning = (
-                f"Debate reached synthesis after {self.current_round} rounds. "
-                f"{len(self.thesis_points)} thesis points, {len(self.antithesis_points)} "
-                f"antithesis points, {self.concession_count} concessions."
-            )
+            return self._build_synthesis_outcome()
         elif outcome == DiscussionOutcome.COMPROMISE:
-            decision = {
-                "type": "compromise",
-                "thesis_summary": self.thesis_points[-3:] if self.thesis_points else [],
-                "antithesis_summary": self.antithesis_points[-3:] if self.antithesis_points else [],
-                "partial_synthesis": self.synthesis_candidates,
-            }
-            confidence = _safe_mean([t.confidence for t in self.turns[-3:]]) * 0.8
-            reasoning = (
-                f"Partial compromise reached after {self.current_round} rounds with "
-                f"{self.concession_count} concessions."
-            )
-        else:
-            decision = {
-                "type": "no_agreement",
-                "thesis_points": self.thesis_points,
-                "antithesis_points": self.antithesis_points,
-            }
-            confidence = _safe_mean([t.confidence for t in self.turns])
-            reasoning = f"No agreement after {self.current_round} rounds."
+            return self._build_compromise_outcome()
+        return self._build_no_agreement_outcome()
 
+    def _build_synthesis_outcome(self) -> tuple[Any, float, str]:
+        """Build synthesis decision for debate."""
+        decision = {
+            "type": "synthesis",
+            "thesis_points": self.thesis_points,
+            "antithesis_points": self.antithesis_points,
+            "synthesis": self.synthesis_candidates[-1],
+        }
+        confidence = _safe_mean([t.confidence for t in self.turns[-3:]])
+        reasoning = (
+            f"Debate reached synthesis after {self.current_round} rounds. "
+            f"{len(self.thesis_points)} thesis points, {len(self.antithesis_points)} "
+            f"antithesis points, {self.concession_count} concessions."
+        )
+        return decision, confidence, reasoning
+
+    def _build_compromise_outcome(self) -> tuple[Any, float, str]:
+        """Build compromise decision for debate."""
+        decision = {
+            "type": "compromise",
+            "thesis_summary": self.thesis_points[-3:] if self.thesis_points else [],
+            "antithesis_summary": self.antithesis_points[-3:] if self.antithesis_points else [],
+            "partial_synthesis": self.synthesis_candidates,
+        }
+        confidence = _safe_mean([t.confidence for t in self.turns[-3:]]) * 0.8
+        reasoning = (
+            f"Partial compromise reached after {self.current_round} rounds with "
+            f"{self.concession_count} concessions."
+        )
+        return decision, confidence, reasoning
+
+    def _build_no_agreement_outcome(self) -> tuple[Any, float, str]:
+        """Build no-agreement decision for debate."""
+        decision = {
+            "type": "no_agreement",
+            "thesis_points": self.thesis_points,
+            "antithesis_points": self.antithesis_points,
+        }
+        confidence = _safe_mean([t.confidence for t in self.turns])
+        reasoning = f"No agreement after {self.current_round} rounds."
         return decision, confidence, reasoning
 
 
@@ -597,36 +614,46 @@ class BrainstormStrategy(DiscussionStrategy):
         self.add_turn(turn)
 
         if self.current_phase == Phase.GENERATE:
-            if isinstance(turn.content, dict) and turn.content.get("type") == "idea":
-                idea_id = f"idea-{len(self.ideas)}"
-                self.ideas.append({
-                    "id": idea_id,
-                    "content": turn.content.get("content", ""),
-                    "agent_id": turn.agent_id,
-                    "confidence": turn.confidence,
-                    "round": self.current_round,
-                })
-                # Initialize position for this idea
-                self._positions[turn.agent_id] = AgentPosition(
-                    agent_id=turn.agent_id,
-                    confidence=turn.confidence,
-                    label="generating",
-                )
+            self._process_generate_idea(turn)
         elif self.current_phase == Phase.EVALUATE:
-            if isinstance(turn.content, dict) and turn.content.get("type") == "evaluation":
-                target = turn.content.get("target_idea", "")
-                if target not in self.evaluations:
-                    self.evaluations[target] = []
-                self.evaluations[target].append({
-                    "agent_id": turn.agent_id,
-                    "score": turn.content.get("score", 0.5),
-                    "comment": turn.content.get("comment", ""),
-                    "confidence": turn.confidence,
-                })
+            self._process_evaluate_idea(turn)
 
         # Phase transition: after generate_rounds, switch to evaluate
         if self.current_phase == Phase.GENERATE and self.current_round >= self.generate_rounds:
             self.current_phase = Phase.EVALUATE
+
+    def _process_generate_idea(self, turn: DiscussionTurn) -> None:
+        """Process an idea submitted during the generate phase."""
+        if not isinstance(turn.content, dict) or turn.content.get("type") != "idea":
+            return
+        idea_id = f"idea-{len(self.ideas)}"
+        self.ideas.append({
+            "id": idea_id,
+            "content": turn.content.get("content", ""),
+            "agent_id": turn.agent_id,
+            "confidence": turn.confidence,
+            "round": self.current_round,
+        })
+        # Initialize position for this idea
+        self._positions[turn.agent_id] = AgentPosition(
+            agent_id=turn.agent_id,
+            confidence=turn.confidence,
+            label="generating",
+        )
+
+    def _process_evaluate_idea(self, turn: DiscussionTurn) -> None:
+        """Process an evaluation submitted during the evaluate phase."""
+        if not isinstance(turn.content, dict) or turn.content.get("type") != "evaluation":
+            return
+        target = turn.content.get("target_idea", "")
+        if target not in self.evaluations:
+            self.evaluations[target] = []
+        self.evaluations[target].append({
+            "agent_id": turn.agent_id,
+            "score": turn.content.get("score", 0.5),
+            "comment": turn.content.get("comment", ""),
+            "confidence": turn.confidence,
+        })
 
     def check_completion(self) -> tuple[bool, DiscussionOutcome]:
         """Check if brainstorm is complete."""
@@ -656,26 +683,37 @@ class BrainstormStrategy(DiscussionStrategy):
         scored_ideas = self._score_brainstorm_ideas()
         best = scored_ideas[0] if scored_ideas else None
         confidence = best["composite_score"] if best else 0.0
-        reasoning = (
-            f"Brainstorm produced {len(self.ideas)} ideas across "
-            f"{self.generate_rounds} generation rounds. "
-            f"Top idea scored {confidence:.2f}."
-        )
 
         return DiscussionResult(
             discussion_id=self.discussion_id,
             format="brainstorm",
             outcome=outcome.value,
-            decision={
-                "type": "ranked_ideas",
-                "total_ideas": len(self.ideas),
-                "best_idea": best,
-                "ranked": scored_ideas[:10],  # top 10
-            },
+            decision=self._build_brainstorm_decision(scored_ideas, best),
             confidence=confidence,
             turns=[t.to_dict() for t in self.turns],
             positions=[p.to_dict() for p in self.get_positions()],
-            reasoning=reasoning,
+            reasoning=self._build_brainstorm_reasoning(confidence),
+        )
+
+    def _build_brainstorm_decision(
+        self,
+        scored_ideas: list[dict[str, Any]],
+        best: Optional[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Build the decision dict for a brainstorm result."""
+        return {
+            "type": "ranked_ideas",
+            "total_ideas": len(self.ideas),
+            "best_idea": best,
+            "ranked": scored_ideas[:10],  # top 10
+        }
+
+    def _build_brainstorm_reasoning(self, confidence: float) -> str:
+        """Build reasoning string for brainstorm result."""
+        return (
+            f"Brainstorm produced {len(self.ideas)} ideas across "
+            f"{self.generate_rounds} generation rounds. "
+            f"Top idea scored {confidence:.2f}."
         )
 
     def _score_brainstorm_ideas(self) -> list[dict[str, Any]]:
@@ -754,31 +792,46 @@ class ReviewStrategy(DiscussionStrategy):
         """Process a review turn."""
         self.add_turn(turn)
 
-        if isinstance(turn.content, dict):
-            if turn.content.get("type") == "criterion_review":
-                criterion_name = turn.content.get("criterion", "")
-                if turn.agent_id not in self.review_results:
-                    self.review_results[turn.agent_id] = []
-                self.review_results[turn.agent_id].append({
-                    "criterion": criterion_name,
-                    "score": turn.content.get("score", 0.5),
-                    "notes": turn.content.get("notes", ""),
-                    "suggestion": turn.content.get("suggestion", ""),
-                    "confidence": turn.confidence,
-                })
-                # Update position
-                if turn.agent_id in self._positions:
-                    self._positions[turn.agent_id].confidence = turn.confidence
-            elif turn.content.get("type") == "overall_review":
-                if turn.agent_id not in self.review_results:
-                    self.review_results[turn.agent_id] = []
-                self.review_results[turn.agent_id].append({
-                    "criterion": "__overall__",
-                    "score": turn.content.get("score", 0.5),
-                    "notes": turn.content.get("notes", ""),
-                    "suggestion": turn.content.get("suggestion", ""),
-                    "confidence": turn.confidence,
-                })
+        if not isinstance(turn.content, dict):
+            return
+
+        ctype = turn.content.get("type", "")
+
+        if ctype == "criterion_review":
+            self._record_criterion_review(turn)
+        elif ctype == "overall_review":
+            self._record_overall_review(turn)
+
+    def _ensure_review_entry(self, agent_id: str) -> None:
+        """Ensure a review results list exists for an agent."""
+        if agent_id not in self.review_results:
+            self.review_results[agent_id] = []
+
+    def _record_criterion_review(self, turn: DiscussionTurn) -> None:
+        """Record a criterion-specific review entry."""
+        criterion_name = turn.content.get("criterion", "")  # type: ignore[union-attr]
+        self._ensure_review_entry(turn.agent_id)
+        self.review_results[turn.agent_id].append({
+            "criterion": criterion_name,
+            "score": turn.content.get("score", 0.5),  # type: ignore[union-attr]
+            "notes": turn.content.get("notes", ""),  # type: ignore[union-attr]
+            "suggestion": turn.content.get("suggestion", ""),  # type: ignore[union-attr]
+            "confidence": turn.confidence,
+        })
+        # Update position
+        if turn.agent_id in self._positions:
+            self._positions[turn.agent_id].confidence = turn.confidence
+
+    def _record_overall_review(self, turn: DiscussionTurn) -> None:
+        """Record an overall review entry."""
+        self._ensure_review_entry(turn.agent_id)
+        self.review_results[turn.agent_id].append({
+            "criterion": "__overall__",
+            "score": turn.content.get("score", 0.5),  # type: ignore[union-attr]
+            "notes": turn.content.get("notes", ""),  # type: ignore[union-attr]
+            "suggestion": turn.content.get("suggestion", ""),  # type: ignore[union-attr]
+            "confidence": turn.confidence,
+        })
 
     def check_completion(self) -> tuple[bool, DiscussionOutcome]:
         """Check if all reviewers have completed all criteria."""
@@ -1047,19 +1100,20 @@ class NegotiationStrategy(DiscussionStrategy):
             return True, DiscussionOutcome.COMPROMISE
 
         # Check if utilities are converging (all trending up)
-        all_converging = True
-        for aid, utils in self.agent_utilities.items():
+        if self._check_utility_convergence() and len(self.compromises) >= len(self.participants) // 2 + 1:
+            return True, DiscussionOutcome.MAJORITY
+
+        return False, DiscussionOutcome.NO_AGREEMENT
+
+    def _check_utility_convergence(self) -> bool:
+        """Check if all agent utilities are trending upward."""
+        for utils in self.agent_utilities.values():
             if len(utils) >= 3:
                 recent_avg = _safe_mean(utils[-3:])
                 earlier_avg = _safe_mean(utils[-6:-3]) if len(utils) >= 6 else _safe_mean(utils[:-3])
                 if recent_avg < earlier_avg:
-                    all_converging = False
-                    break
-
-        if all_converging and len(self.compromises) >= len(self.participants) // 2 + 1:
-            return True, DiscussionOutcome.MAJORITY
-
-        return False, DiscussionOutcome.NO_AGREEMENT
+                    return False
+        return True
 
     def conclude(self) -> DiscussionResult:
         """Produce negotiation result."""
@@ -1073,23 +1127,41 @@ class NegotiationStrategy(DiscussionStrategy):
             discussion_id=self.discussion_id,
             format="negotiation",
             outcome=outcome.value,
-            decision={
-                "type": "negotiation_result",
-                "best_proposal": best_proposal,
-                "total_proposals": len(self.proposals),
-                "compromises": self.compromises,
-                "fairness_score": min_utility,
-                "efficiency_score": best_total_utility,
-            },
+            decision=self._build_negotiation_decision(best_proposal, best_total_utility, min_utility),
             confidence=best_total_utility,
             turns=[t.to_dict() for t in self.turns],
             positions=[p.to_dict() for p in self.get_positions()],
-            reasoning=(
-                f"Negotiation produced {len(self.proposals)} proposals. "
-                f"Best proposal utility: {best_total_utility:.2f}, "
-                f"min agent utility: {min_utility:.2f}. "
-                f"Outcome: {outcome.value}."
-            ),
+            reasoning=self._build_negotiation_reasoning(best_total_utility, min_utility, outcome),
+        )
+
+    def _build_negotiation_decision(
+        self,
+        best_proposal: Optional[dict[str, Any]],
+        best_total_utility: float,
+        min_utility: float,
+    ) -> dict[str, Any]:
+        """Build the decision dict for a negotiation result."""
+        return {
+            "type": "negotiation_result",
+            "best_proposal": best_proposal,
+            "total_proposals": len(self.proposals),
+            "compromises": self.compromises,
+            "fairness_score": min_utility,
+            "efficiency_score": best_total_utility,
+        }
+
+    def _build_negotiation_reasoning(
+        self,
+        best_total_utility: float,
+        min_utility: float,
+        outcome: DiscussionOutcome,
+    ) -> str:
+        """Build reasoning string for negotiation result."""
+        return (
+            f"Negotiation produced {len(self.proposals)} proposals. "
+            f"Best proposal utility: {best_total_utility:.2f}, "
+            f"min agent utility: {min_utility:.2f}. "
+            f"Outcome: {outcome.value}."
         )
 
     def _find_best_proposal(
@@ -1180,41 +1252,52 @@ class PeerReviewStrategy(DiscussionStrategy):
         """Process a peer review turn."""
         self.add_turn(turn)
 
-        if isinstance(turn.content, dict):
-            ctype = turn.content.get("type", "")
+        if not isinstance(turn.content, dict):
+            return
 
-            if ctype == "independent_review_result":
-                # Store the full independent review
-                self.independent_reviews[turn.agent_id] = {
-                    "scores": turn.content.get("scores", {}),
-                    "summary": turn.content.get("summary", ""),
-                    "recommendation": turn.content.get("recommendation", ""),
-                    "confidence": turn.confidence,
-                    "strengths": turn.content.get("strengths", []),
-                    "weaknesses": turn.content.get("weaknesses", []),
-                }
-                # Transition to discussion phase once all reviews are in
-                if len(self.independent_reviews) >= len(self.participants):
-                    self.current_phase = Phase.EVALUATE
+        ctype = turn.content.get("type", "")
 
-                # Update position
-                if turn.agent_id in self._positions:
-                    scores = turn.content.get("scores", {})
-                    avg = _safe_mean(list(scores.values())) if scores else 0.5
-                    self._positions[turn.agent_id].confidence = avg
-                    self._positions[turn.agent_id].label = "reviewed"
+        if ctype == "independent_review_result":
+            self._store_independent_review(turn)
+        elif ctype == "reviewer_comment":
+            self._handle_reviewer_comment(turn)
+        elif ctype == "revision_request":
+            self.revision_requests.append(turn.content.get("description", ""))
 
-            elif ctype == "reviewer_comment":
-                self.discussion_turns.append({
-                    "agent_id": turn.agent_id,
-                    "comment": turn.content.get("comment", ""),
-                    "target": turn.content.get("target_reviewer", ""),
-                    "round": self.current_round,
-                    "confidence": turn.confidence,
-                })
+    def _store_independent_review(self, turn: DiscussionTurn) -> None:
+        """Store and process an independent review result."""
+        self.independent_reviews[turn.agent_id] = {
+            "scores": turn.content.get("scores", {}),  # type: ignore[union-attr]
+            "summary": turn.content.get("summary", ""),  # type: ignore[union-attr]
+            "recommendation": turn.content.get("recommendation", ""),  # type: ignore[union-attr]
+            "confidence": turn.confidence,
+            "strengths": turn.content.get("strengths", []),  # type: ignore[union-attr]
+            "weaknesses": turn.content.get("weaknesses", []),  # type: ignore[union-attr]
+        }
+        # Transition to discussion phase once all reviews are in
+        if len(self.independent_reviews) >= len(self.participants):
+            self.current_phase = Phase.EVALUATE
+        # Update position
+        self._update_peer_review_position(turn)
 
-            elif ctype == "revision_request":
-                self.revision_requests.append(turn.content.get("description", ""))
+    def _update_peer_review_position(self, turn: DiscussionTurn) -> None:
+        """Update reviewer position based on submitted scores."""
+        if turn.agent_id not in self._positions:
+            return
+        scores = turn.content.get("scores", {}) if isinstance(turn.content, dict) else {}  # type: ignore[union-attr]
+        avg = _safe_mean(list(scores.values())) if scores else 0.5
+        self._positions[turn.agent_id].confidence = avg
+        self._positions[turn.agent_id].label = "reviewed"
+
+    def _handle_reviewer_comment(self, turn: DiscussionTurn) -> None:
+        """Record a reviewer discussion comment."""
+        self.discussion_turns.append({
+            "agent_id": turn.agent_id,
+            "comment": turn.content.get("comment", ""),  # type: ignore[union-attr]
+            "target": turn.content.get("target_reviewer", ""),  # type: ignore[union-attr]
+            "round": self.current_round,
+            "confidence": turn.confidence,
+        })
 
     def check_completion(self) -> tuple[bool, DiscussionOutcome]:
         """Check if peer review is complete."""
@@ -1256,25 +1339,43 @@ class PeerReviewStrategy(DiscussionStrategy):
             discussion_id=self.discussion_id,
             format="peer_review",
             outcome=outcome.value,
-            decision={
-                "type": "peer_review_result",
-                "overall_score": overall,
-                "criteria": aggregated_criteria,
-                "recommendations": recommendations,
-                "review_count": len(self.independent_reviews),
-                "revision_needed": len(self.revision_requests) > 0,
-                "revision_requests": self.revision_requests,
-                "discussion_highlights": self.discussion_turns[:5],
-            },
+            decision=self._build_peer_review_decision(aggregated_criteria, overall, recommendations),
             confidence=overall,
             turns=[t.to_dict() for t in self.turns],
             positions=[p.to_dict() for p in self.get_positions()],
-            reasoning=(
-                f"Peer review with {len(self.independent_reviews)} reviewers. "
-                f"Overall score: {overall:.2f}. "
-                f"Recommendations: {', '.join(recommendations)}. "
-                f"Outcome: {outcome.value}."
-            ),
+            reasoning=self._build_peer_review_reasoning(overall, recommendations, outcome),
+        )
+
+    def _build_peer_review_decision(
+        self,
+        aggregated_criteria: list[dict[str, Any]],
+        overall: float,
+        recommendations: list[str],
+    ) -> dict[str, Any]:
+        """Build the decision dict for a peer review result."""
+        return {
+            "type": "peer_review_result",
+            "overall_score": overall,
+            "criteria": aggregated_criteria,
+            "recommendations": recommendations,
+            "review_count": len(self.independent_reviews),
+            "revision_needed": len(self.revision_requests) > 0,
+            "revision_requests": self.revision_requests,
+            "discussion_highlights": self.discussion_turns[:5],
+        }
+
+    def _build_peer_review_reasoning(
+        self,
+        overall: float,
+        recommendations: list[str],
+        outcome: DiscussionOutcome,
+    ) -> str:
+        """Build reasoning string for peer review result."""
+        return (
+            f"Peer review with {len(self.independent_reviews)} reviewers. "
+            f"Overall score: {overall:.2f}. "
+            f"Recommendations: {', '.join(recommendations)}. "
+            f"Outcome: {outcome.value}."
         )
 
     def _aggregate_peer_review_criteria(self) -> list[dict[str, Any]]:

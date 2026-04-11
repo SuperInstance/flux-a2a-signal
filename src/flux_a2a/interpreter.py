@@ -91,6 +91,8 @@ class Interpreter:
         self.agents: dict[str, Agent] = {}
         # Confidence for current scope
         self._scope_confidence = 1.0
+        # Op dispatch table (built once at init)
+        self._op_handlers: dict[str, Any] = self._build_op_handlers()
 
     # ------------------------------------------------------------------
     # Public API
@@ -119,94 +121,98 @@ class Interpreter:
         if expr.confidence < self._scope_confidence:
             self._scope_confidence = expr.confidence
 
-        op = expr.op
-
-        # --- Arithmetic ---
-        if op in ("add", "sub", "mul", "div", "mod"):
-            return self._eval_arithmetic(op, expr)
-        # --- Comparison ---
-        if op in ("eq", "neq", "lt", "lte", "gt", "gte"):
-            return self._eval_comparison(op, expr)
-        # --- Logic ---
-        if op in ("and", "or", "not", "xor"):
-            return self._eval_logic(op, expr)
-        # --- String ---
-        if op == "concat":
-            return self._eval_concat(expr)
-        if op == "length":
-            return self._eval_length(expr)
-        # --- Collection ---
-        if op == "at":
-            return self._eval_at(expr)
-        if op == "collect":
-            return self._eval_collect(expr)
-        if op == "reduce":
-            return self._eval_reduce(expr)
-        # --- Control flow ---
-        if op == "seq":
-            return self._eval_seq(expr)
-        if op == "if":
-            return self._eval_if(expr)
-        if op == "loop":
-            return self._eval_loop(expr)
-        if op == "while":
-            return self._eval_while(expr)
-        if op == "match":
-            return self._eval_match(expr)
-        if op == "yield":
-            return self._eval_yield(expr)
-        if op == "await":
-            return self._eval_await(expr)
-        # --- Variable bindings ---
-        if op == "let":
-            return self._eval_let(expr)
-        if op == "get":
-            return self._eval_get(expr)
-        if op == "set":
-            return self._eval_set(expr)
-        # --- Data ---
-        if op == "struct":
-            return self._eval_struct(expr)
-        # --- Agent communication ---
-        if op == "tell":
-            return self._eval_tell(expr)
-        if op == "ask":
-            return self._eval_ask(expr)
-        if op == "delegate":
-            return self._eval_delegate(expr)
-        if op == "broadcast":
-            return self._eval_broadcast(expr)
-        # --- Agent operations ---
-        if op == "branch":
-            return self._eval_branch(expr)
-        if op == "fork":
-            return self._eval_fork(expr)
-        if op == "merge":
-            return self._eval_merge(expr)
-        if op == "co_iterate":
-            return self._eval_co_iterate(expr)
-        # --- Signals & trust ---
-        if op == "signal":
-            return self._eval_signal(expr)
-        if op == "trust":
-            return self._eval_trust(expr)
-        if op == "confidence":
-            return self._eval_confidence_op(expr)
-        # --- Literals / pass-through ---
-        if op == "literal":
-            return self._eval_literal(expr)
-        # --- eval wrapper ---
-        if op == "eval":
-            return self._eval_wrapper(expr)
+        handler = self._op_handlers.get(expr.op)
+        if handler is not None:
+            return handler(expr)
 
         # Unknown opcode
         return Result(
             value=None,
             confidence=0.0,
-            source=f"unknown_op:{op}",
+            source=f"unknown_op:{expr.op}",
             agent=self.agent_id,
-            error=f"Unknown opcode: {op}",
+            error=f"Unknown opcode: {expr.op}",
         )
+
+    # ------------------------------------------------------------------
+    # Dispatch table construction
+    # ------------------------------------------------------------------
+
+    def _build_op_handlers(self) -> dict[str, Any]:
+        """Build the complete opcode → handler dispatch table."""
+        return {
+            **self._build_core_handlers(),
+            **self._build_control_handlers(),
+            **self._build_variable_handlers(),
+            **self._build_comm_handlers(),
+            **self._build_agent_handlers(),
+            **self._build_signal_handlers(),
+        }
+
+    def _build_core_handlers(self) -> dict[str, Any]:
+        """Handlers for arithmetic, comparison, logic, string, collection ops."""
+        return {
+            **{op: lambda e, o=op: self._eval_arithmetic(o, e)
+               for op in ("add", "sub", "mul", "div", "mod")},
+            **{op: lambda e, o=op: self._eval_comparison(o, e)
+               for op in ("eq", "neq", "lt", "lte", "gt", "gte")},
+            **{op: lambda e, o=op: self._eval_logic(o, e)
+               for op in ("and", "or", "not", "xor")},
+            "concat": self._eval_concat,
+            "length": self._eval_length,
+            "at": self._eval_at,
+            "collect": self._eval_collect,
+            "reduce": self._eval_reduce,
+        }
+
+    def _build_control_handlers(self) -> dict[str, Any]:
+        """Handlers for control flow ops."""
+        return {
+            "seq": self._eval_seq,
+            "if": self._eval_if,
+            "loop": self._eval_loop,
+            "while": self._eval_while,
+            "match": self._eval_match,
+            "yield": self._eval_yield,
+            "await": self._eval_await,
+        }
+
+    def _build_variable_handlers(self) -> dict[str, Any]:
+        """Handlers for variable binding and data ops."""
+        return {
+            "let": self._eval_let,
+            "get": self._eval_get,
+            "set": self._eval_set,
+            "struct": self._eval_struct,
+        }
+
+    def _build_comm_handlers(self) -> dict[str, Any]:
+        """Handlers for agent communication ops."""
+        return {
+            "tell": self._eval_tell,
+            "ask": self._eval_ask,
+            "delegate": self._eval_delegate,
+            "broadcast": self._eval_broadcast,
+        }
+
+    def _build_agent_handlers(self) -> dict[str, Any]:
+        """Handlers for agent branching, forking, merging, co-iteration."""
+        return {
+            "branch": self._eval_branch,
+            "fork": self._eval_fork,
+            "merge": self._eval_merge,
+            "co_iterate": self._eval_co_iterate,
+        }
+
+    def _build_signal_handlers(self) -> dict[str, Any]:
+        """Handlers for signals, trust, confidence, literals."""
+        return {
+            "signal": self._eval_signal,
+            "trust": self._eval_trust,
+            "confidence": self._eval_confidence_op,
+            "literal": self._eval_literal,
+            "eval": self._eval_wrapper,
+        }
 
     def _eval_literal(self, expr: Expression) -> Result:
         """Evaluate a literal expression."""
@@ -741,34 +747,15 @@ class Interpreter:
         inherit_raw = expr.get("inherit", {})
         body_raw = expr.get("body", [])
 
-        # Parse agent
-        if isinstance(agent_raw, Agent):
-            child_agent = agent_raw
-        elif isinstance(agent_raw, dict):
-            child_agent = Agent(**agent_raw)
-        else:
-            child_agent = Agent(id="child")
-
-        # Parse inheritance
-        if isinstance(inherit_raw, dict):
-            inherit_state = inherit_raw.get("state", [])
-            inherit_context = inherit_raw.get("context", True)
-            inherit_trust = inherit_raw.get("trust_graph", False)
-        else:
-            inherit_state = []
-            inherit_context = True
-            inherit_trust = False
-
-        # Parse body
+        child_agent = self._parse_fork_agent(agent_raw)
+        inherit_state, inherit_context, _ = self._parse_fork_inheritance(inherit_raw)
         body = [Expression.from_dict(b) if isinstance(b, dict) else b for b in body_raw]
 
-        # Create fork context
-        inherited_state = {}
-        for key in inherit_state:
-            if key in self.state:
-                inherited_state[key] = self.state[key]
+        # Create inherited state
+        inherited_state = {k: self.state[k] for k in inherit_state if k in self.state}
 
-        fork_ctx = self.fork_manager.create_fork(
+        # Create fork context
+        self.fork_manager.create_fork(
             fork_id=fork_id,
             parent_id=self.agent_id,
             child_agent=child_agent,
@@ -777,16 +764,7 @@ class Interpreter:
         )
 
         # Execute fork body with inherited state
-        saved_state = dict(self.state)
-        self.state = dict(inherited_state)
-        if inherit_context and self.agent_id:
-            self.state["_fork_parent"] = self.agent_id
-            self.state["_fork_id"] = fork_id
-
-        try:
-            result = self._eval_body(body)
-        finally:
-            self.state = saved_state
+        result = self._execute_fork_body(body, inherited_state, inherit_context, fork_id)
 
         # Collect result
         self.fork_manager.complete_fork(fork_id, result)
@@ -803,6 +781,46 @@ class Interpreter:
             },
         )
 
+    def _parse_fork_agent(self, agent_raw: Any) -> Agent:
+        """Parse agent from fork expression."""
+        if isinstance(agent_raw, Agent):
+            return agent_raw
+        if isinstance(agent_raw, dict):
+            return Agent(**agent_raw)
+        return Agent(id="child")
+
+    def _parse_fork_inheritance(self, inherit_raw: Any) -> tuple[list[str], bool, bool]:
+        """Parse inheritance settings from fork expression.
+
+        Returns (inherit_state_keys, inherit_context, inherit_trust).
+        """
+        if isinstance(inherit_raw, dict):
+            return (
+                inherit_raw.get("state", []),
+                inherit_raw.get("context", True),
+                inherit_raw.get("trust_graph", False),
+            )
+        return ([], True, False)
+
+    def _execute_fork_body(
+        self,
+        body: list,
+        inherited_state: dict[str, Any],
+        inherit_context: bool,
+        fork_id: str,
+    ) -> Result:
+        """Execute fork body with inherited state, restoring parent state after."""
+        saved_state = dict(self.state)
+        self.state = dict(inherited_state)
+        if inherit_context and self.agent_id:
+            self.state["_fork_parent"] = self.agent_id
+            self.state["_fork_id"] = fork_id
+
+        try:
+            return self._eval_body(body)
+        finally:
+            self.state = saved_state
+
     # ------------------------------------------------------------------
     # Agent operations — Merge
     # ------------------------------------------------------------------
@@ -811,7 +829,11 @@ class Interpreter:
         strategy = expr.get("strategy", MergePolicyType.WEIGHTED_CONFIDENCE.value)
         results_raw = expr.get("results", expr.get("values", []))
 
-        # If results are expressions, evaluate them first
+        results = self._resolve_merge_inputs(results_raw)
+        return self._apply_merge_strategy(strategy, results, expr)
+
+    def _resolve_merge_inputs(self, results_raw: list[Any]) -> list[Result]:
+        """Resolve raw merge inputs into Result objects."""
         results: list[Result] = []
         for r in results_raw:
             if isinstance(r, Result):
@@ -822,45 +844,64 @@ class Interpreter:
                 results.append(self.evaluate(Expression.from_dict(r)))
             else:
                 results.append(Result(value=r, confidence=self._scope_confidence))
+        return results
+
+    def _apply_merge_strategy(
+        self, strategy: str, results: list[Result], expr: Expression,
+    ) -> Result:
+        """Apply the merge strategy to a list of results."""
+        if not results:
+            return Result(value=None, source="merge", agent=self.agent_id)
 
         if strategy == MergePolicyType.BEST_CONFIDENCE.value:
-            best = max(results, key=lambda r: r.confidence)
-            return best
-        elif strategy == MergePolicyType.FIRST_COMPLETE.value:
-            return results[0] if results else Result(value=None, source="merge", agent=self.agent_id)
-        elif strategy == MergePolicyType.CONSENSUS.value:
-            values = [r.value for r in results]
-            if all(v == values[0] for v in values):
-                return Result(
-                    value=values[0],
-                    confidence=min(r.confidence for r in results),
-                    source="merge:consensus",
-                    agent=self.agent_id,
-                )
+            return max(results, key=lambda r: r.confidence)
+
+        if strategy == MergePolicyType.FIRST_COMPLETE.value:
+            return results[0]
+
+        if strategy == MergePolicyType.CONSENSUS.value:
+            return self._merge_by_consensus(results)
+
+        if strategy == MergePolicyType.WEIGHTED_CONFIDENCE.value:
+            return self._merge_by_weighted_confidence(results, expr)
+
+        # Default: last writer wins
+        return results[-1]
+
+    def _merge_by_consensus(self, results: list[Result]) -> Result:
+        """Merge by consensus: all values must agree."""
+        values = [r.value for r in results]
+        if all(v == values[0] for v in values):
             return Result(
-                value=values,
-                confidence=0.5,
-                source="merge:consensus:disagree",
+                value=values[0],
+                confidence=min(r.confidence for r in results),
+                source="merge:consensus",
                 agent=self.agent_id,
-                meta={"agreement": False},
             )
-        elif strategy == MergePolicyType.WEIGHTED_CONFIDENCE.value:
-            weights = expr.get("weights", [1.0] * len(results))
-            total_w = sum(weights)
-            if total_w == 0:
-                return Result(value=None, confidence=0.0, source="merge:weighted", agent=self.agent_id)
-            weighted_conf = sum(w * r.confidence for w, r in zip(weights, results)) / total_w
-            # Return first result's value as representative
-            return Result(
-                value=results[0].value if results else None,
-                confidence=weighted_conf,
-                source="merge:weighted_confidence",
-                agent=self.agent_id,
-                children=results,
-            )
-        else:
-            # Default: last writer wins
-            return results[-1] if results else Result(value=None, source="merge", agent=self.agent_id)
+        return Result(
+            value=values,
+            confidence=0.5,
+            source="merge:consensus:disagree",
+            agent=self.agent_id,
+            meta={"agreement": False},
+        )
+
+    def _merge_by_weighted_confidence(
+        self, results: list[Result], expr: Expression,
+    ) -> Result:
+        """Merge by weighted confidence average."""
+        weights = expr.get("weights", [1.0] * len(results))
+        total_w = sum(weights)
+        if total_w == 0:
+            return Result(value=None, confidence=0.0, source="merge:weighted", agent=self.agent_id)
+        weighted_conf = sum(w * r.confidence for w, r in zip(weights, results)) / total_w
+        return Result(
+            value=results[0].value if results else None,
+            confidence=weighted_conf,
+            source="merge:weighted_confidence",
+            agent=self.agent_id,
+            children=results,
+        )
 
     # ------------------------------------------------------------------
     # Agent operations — Co-iteration
@@ -870,34 +911,12 @@ class Interpreter:
         co_id = expr.get("id", "co_iterate")
         program_raw = expr.get("program", {})
         agents_raw = expr.get("agents", [])
-        cr_raw = expr.get("conflict_resolution", {})
 
-        # Parse program
-        if isinstance(program_raw, dict) and "body" in program_raw:
-            body = [Expression.from_dict(e) if isinstance(e, dict) else e
-                    for e in program_raw.get("body", [])]
-        elif isinstance(program_raw, list):
-            body = [Expression.from_dict(e) if isinstance(e, dict) else e for e in program_raw]
-        elif isinstance(program_raw, dict) and "op" in program_raw:
-            body = [Expression.from_dict(program_raw)]
-        else:
-            body = []
-
-        # Parse agents
-        co_agents = []
-        for a in agents_raw:
-            if isinstance(a, Agent):
-                co_agents.append(a)
-            elif isinstance(a, dict):
-                co_agents.append(Agent(**a))
+        body = self._parse_co_program_body(program_raw)
+        co_agents = self._parse_co_agents(agents_raw)
 
         # Create shared program
-        shared = SharedProgram(
-            id=co_id,
-            body=body,
-        )
-
-        # Register agent cursors
+        shared = SharedProgram(id=co_id, body=body)
         for agent in co_agents:
             shared.add_cursor(agent.id, agent)
 
@@ -917,6 +936,28 @@ class Interpreter:
                 "steps": result.meta.get("steps", 0),
             },
         )
+
+    def _parse_co_program_body(self, program_raw: Any) -> list[Any]:
+        """Parse program body from co-iterate expression."""
+        if isinstance(program_raw, dict) and "body" in program_raw:
+            return [Expression.from_dict(e) if isinstance(e, dict) else e
+                    for e in program_raw.get("body", [])]
+        if isinstance(program_raw, list):
+            return [Expression.from_dict(e) if isinstance(e, dict) else e
+                    for e in program_raw]
+        if isinstance(program_raw, dict) and "op" in program_raw:
+            return [Expression.from_dict(program_raw)]
+        return []
+
+    def _parse_co_agents(self, agents_raw: list[Any]) -> list[Agent]:
+        """Parse agent list from co-iterate expression."""
+        co_agents: list[Agent] = []
+        for a in agents_raw:
+            if isinstance(a, Agent):
+                co_agents.append(a)
+            elif isinstance(a, dict):
+                co_agents.append(Agent(**a))
+        return co_agents
 
     # ------------------------------------------------------------------
     # Signals & Trust

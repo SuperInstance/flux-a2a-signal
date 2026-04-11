@@ -790,12 +790,19 @@ class AgentWorkflowPipeline:
             "recommendation": "accept" if confidence > 0.7 else "revise",
         }
 
+    @staticmethod
+    def _adjust_confidence_for_round(confidence: float, round_num: int) -> float:
+        """Adjust agent confidence based on discussion round to simulate convergence."""
+        if round_num > 2:
+            # Simulate convergence: shift confidence slightly toward center
+            return min(0.95, confidence + 0.05)
+        return confidence
+
     def _make_turn_generator(
         self,
         branch_results: list[BranchResult],
     ) -> Callable:
         """Create a default turn generator from branch results."""
-        # Pre-compute agent positions from branch results
         agent_positions: dict[str, BranchResult] = {
             r.agent_id: r for r in branch_results
         }
@@ -809,12 +816,7 @@ class AgentWorkflowPipeline:
             phase = state.get("current_phase", Phase.SINGLE.value)
             fmt = self.spec.discussion_format
             round_num = state.get("current_round", 0)
-
-            # Adjust confidence based on round (agents may shift)
-            confidence = br.confidence
-            if round_num > 2:
-                # Simulate convergence: shift confidence slightly toward center
-                confidence = min(0.95, confidence + 0.05)
+            confidence = self._adjust_confidence_for_round(br.confidence, round_num)
 
             content, challenge_to = self._build_turn_content(
                 agent, fmt, phase, round_num, confidence
@@ -1188,6 +1190,17 @@ class AgentWorkflowPipeline:
 
     # -- Main execution entry point ------------------------------------------
 
+    async def _run_core_phases(
+        self,
+        turn_generator: Optional[Callable],
+    ) -> tuple[DiscussionResult, bool, AgreementMetrics, Optional[Stalemate], list[BranchResult]]:
+        """Run phases 1–4: branch → explore → discuss → detect consensus."""
+        branches = self.branch()
+        branch_results = await self.explore(branches)
+        discussion_result = self.discuss(branch_results, turn_generator)
+        has_consensus, consensus_metrics, stalemate = self.detect_consensus(discussion_result)
+        return discussion_result, has_consensus, consensus_metrics, stalemate, branch_results
+
     async def execute(
         self,
         turn_generator: Optional[Callable] = None,
@@ -1207,26 +1220,17 @@ class AgentWorkflowPipeline:
         """
         self._log("execute", f"Starting workflow: {self.spec.goal}")
 
-        # Phase 1: Branch
-        branches = self.branch()
+        discussion_result, has_consensus, consensus_metrics, stalemate, branch_results = \
+            await self._run_core_phases(turn_generator)
 
-        # Phase 2: Explore
-        branch_results = await self.explore(branches)
-
-        # Phase 3: Discuss
-        discussion_result = self.discuss(branch_results, turn_generator)
-
-        # Phase 4: Detect consensus
-        has_consensus, consensus_metrics, stalemate = self.detect_consensus(discussion_result)
-
-        # Phase 5: Handle stalemate with re-branching
+        # Handle stalemate with re-branching
         rebranch_result = await self._try_rebranch(
             has_consensus, stalemate, branch_results, turn_generator
         )
         if rebranch_result is not None:
             return rebranch_result
 
-        # Phase 6: Synthesize
+        # Synthesize final result
         result = self.synthesize(discussion_result, consensus_metrics, branch_results)
 
         self._log("execute", f"Workflow complete: {result.status}")

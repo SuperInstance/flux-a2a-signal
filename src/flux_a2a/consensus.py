@@ -494,6 +494,18 @@ class ConsensusDetector:
                 timestamp=_now(),
             )
 
+        factors = self._compute_agreement_factors(positions)
+        metrics = self._build_agreement_metrics(factors)
+
+        # Record in history
+        self.history.add_snapshot(self._round_counter, metrics, positions)
+
+        return metrics
+
+    def _compute_agreement_factors(
+        self, positions: list[AgentPosition],
+    ) -> dict[str, Any]:
+        """Compute intermediate agreement factors from positions."""
         pairwise = self._compute_pairwise_similarities(positions)
         distance_stats = self._compute_distance_stats(pairwise)
         confidence_alignment = self._compute_confidence_alignment(positions)
@@ -501,27 +513,33 @@ class ConsensusDetector:
         cluster_count = len(clusters)
         majority_fraction = self._compute_majority_fraction(positions, clusters)
         agreement_score = _clamp(1.0 - distance_stats["mean"])
-
         consensus_type = self._determine_consensus_type(
             positions, agreement_score, majority_fraction, cluster_count, pairwise
         )
+        return {
+            "pairwise": pairwise,
+            "distance_stats": distance_stats,
+            "confidence_alignment": confidence_alignment,
+            "cluster_count": cluster_count,
+            "majority_fraction": majority_fraction,
+            "agreement_score": agreement_score,
+            "consensus_type": consensus_type,
+        }
 
-        metrics = AgreementMetrics(
-            consensus_type=consensus_type,
-            agreement_score=agreement_score,
-            pairwise_similarities=pairwise,
-            cluster_count=cluster_count,
-            majority_fraction=majority_fraction,
-            mean_distance=distance_stats["mean"],
-            min_distance=distance_stats["min"],
-            max_distance=distance_stats["max"],
-            confidence_alignment=confidence_alignment,
+    def _build_agreement_metrics(self, factors: dict[str, Any]) -> AgreementMetrics:
+        """Construct AgreementMetrics from computed factors."""
+        ds = factors["distance_stats"]
+        return AgreementMetrics(
+            consensus_type=factors["consensus_type"],
+            agreement_score=factors["agreement_score"],
+            pairwise_similarities=factors["pairwise"],
+            cluster_count=factors["cluster_count"],
+            majority_fraction=factors["majority_fraction"],
+            mean_distance=ds["mean"],
+            min_distance=ds["min"],
+            max_distance=ds["max"],
+            confidence_alignment=factors["confidence_alignment"],
         )
-
-        # Record in history
-        self.history.add_snapshot(self._round_counter, metrics, positions)
-
-        return metrics
 
     def _compute_pairwise_similarities(
         self, positions: list[AgentPosition],
