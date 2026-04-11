@@ -647,77 +647,12 @@ class SimpleBackend(ExecutionBackend):
                     error = "Max cycles exceeded"
                     break
 
-                if not isinstance(instr, (list, tuple)) or len(instr) == 0:
-                    continue
-
-                op = str(instr[0]).upper()
-
-                if op == "MOVI" and len(instr) >= 3:
-                    reg = int(instr[1])
-                    imm = instr[2]
-                    if 0 <= reg < 8:
-                        registers[reg] = imm
-
-                elif op == "MOV" and len(instr) >= 3:
-                    rd = int(instr[1])
-                    rs = int(instr[2])
-                    if 0 <= rd < 8 and 0 <= rs < 8:
-                        registers[rd] = registers[rs]
-
-                elif op == "ADD" and len(instr) >= 4:
-                    rd = int(instr[1])
-                    rs1 = int(instr[2])
-                    rs2 = int(instr[3])
-                    if 0 <= rd < 8 and 0 <= rs1 < 8 and 0 <= rs2 < 8:
-                        registers[rd] = registers[rs1] + registers[rs2]
-
-                elif op == "SUB" and len(instr) >= 4:
-                    rd = int(instr[1])
-                    rs1 = int(instr[2])
-                    rs2 = int(instr[3])
-                    if 0 <= rd < 8 and 0 <= rs1 < 8 and 0 <= rs2 < 8:
-                        registers[rd] = registers[rs1] - registers[rs2]
-
-                elif op == "MUL" and len(instr) >= 4:
-                    rd = int(instr[1])
-                    rs1 = int(instr[2])
-                    rs2 = int(instr[3])
-                    if 0 <= rd < 8 and 0 <= rs1 < 8 and 0 <= rs2 < 8:
-                        registers[rd] = registers[rs1] * registers[rs2]
-
-                elif op == "DIV" and len(instr) >= 4:
-                    rd = int(instr[1])
-                    rs1 = int(instr[2])
-                    rs2 = int(instr[3])
-                    if 0 <= rd < 8 and 0 <= rs1 < 8 and 0 <= rs2 < 8:
-                        if registers[rs2] == 0:
-                            error = "Division by zero"
-                            break
-                        registers[rd] = int(registers[rs1] / registers[rs2])
-
-                elif op == "IADD" and len(instr) >= 3:
-                    a = float(instr[1])
-                    b = float(instr[2])
-                    registers[0] = a + b
-
-                elif op == "DISTRIBUTE" and len(instr) >= 3:
-                    a = float(instr[1])
-                    b = float(instr[2])
-                    if b == 0:
-                        error = "Division by zero in distribute"
-                        break
-                    registers[0] = a / b
-
-                elif op == "PRINT" and len(instr) >= 2:
-                    reg = int(instr[1])
-                    if 0 <= reg < 8:
-                        output.append(str(registers[reg]))
-
-                elif op == "HALT":
+                result = self._dispatch_instruction(instr, registers, output)
+                if result == "__halt__":
                     break
-
-                elif op == "NOP":
-                    pass
+                if result:
+                    error = result
+                    break
 
         except (IndexError, TypeError, ValueError) as e:
             error = str(e)
@@ -735,6 +670,79 @@ class SimpleBackend(ExecutionBackend):
             confidence=1.0 if success else 0.0,
             metadata={"cycles": cycles},
         )
+
+    def _dispatch_instruction(
+        self,
+        instr: Any,
+        registers: list,
+        output: list[str],
+    ) -> str:
+        """Execute one instruction. Returns '' (continue), '__halt__', or error string."""
+        if not isinstance(instr, (list, tuple)) or len(instr) == 0:
+            return ""
+        op = str(instr[0]).upper()
+
+        if op == "HALT":
+            return "__halt__"
+        if op == "NOP":
+            return ""
+
+        # Register-based ops (MOVI, MOV, ADD, SUB, MUL, DIV)
+        error = self._exec_register_op(op, instr, registers)
+        if error is not None:
+            return error
+
+        # Immediate arithmetic ops
+        if op == "IADD" and len(instr) >= 3:
+            registers[0] = float(instr[1]) + float(instr[2])
+            return ""
+        if op == "DISTRIBUTE" and len(instr) >= 3:
+            b = float(instr[2])
+            if b == 0:
+                return "Division by zero in distribute"
+            registers[0] = float(instr[1]) / b
+            return ""
+
+        # I/O
+        if op == "PRINT" and len(instr) >= 2:
+            reg = int(instr[1])
+            if 0 <= reg < 8:
+                output.append(str(registers[reg]))
+            return ""
+
+        return ""
+
+    def _exec_register_op(
+        self,
+        op: str,
+        instr: Any,
+        registers: list,
+    ) -> Optional[str]:
+        """Handle register-based ops. Returns error string, None if not handled."""
+        if op == "MOVI" and len(instr) >= 3:
+            reg = int(instr[1])
+            if 0 <= reg < 8:
+                registers[reg] = instr[2]
+            return None
+        if op == "MOV" and len(instr) >= 3:
+            rd, rs = int(instr[1]), int(instr[2])
+            if 0 <= rd < 8 and 0 <= rs < 8:
+                registers[rd] = registers[rs]
+            return None
+
+        _ARITH_OPS = {
+            "ADD": lambda a, b: a + b,
+            "SUB": lambda a, b: a - b,
+            "MUL": lambda a, b: a * b,
+            "DIV": lambda a, b: int(a / b),
+        }
+        if op in _ARITH_OPS and len(instr) >= 4:
+            rd, rs1, rs2 = int(instr[1]), int(instr[2]), int(instr[3])
+            if 0 <= rd < 8 and 0 <= rs1 < 8 and 0 <= rs2 < 8:
+                if op == "DIV" and registers[rs2] == 0:
+                    return "Division by zero"
+                registers[rd] = _ARITH_OPS[op](registers[rs1], registers[rs2])
+        return None
 
 
 class BranchingExecutor:
@@ -783,26 +791,50 @@ class BranchingExecutor:
             A BranchingResult with the winning interpretation and all results.
         """
         if parse.is_unambiguous:
-            # No ambiguity — just execute the single interpretation
-            interp = parse.interpretations[0]
-            result = self._execute_one(interp)
-            return BranchingResult(
-                parse_id=parse.id,
-                source=parse.source,
-                winner_label=interp.label,
-                winner_value=result.value,
-                winner_confidence=1.0,
-                all_results=[result],
-                propagation_summary=None,
-                metadata={"unambiguous": True},
-            )
+            return self._execute_unambiguous(parse)
 
         # Execute all interpretations
         all_results = self._execute_all(parse.interpretations)
 
         # Feed results into confidence propagation
         propagation = ConfidencePropagation(parse)
+        self._propagate_execution_results(parse, all_results, propagation)
+        propagation.next_round()
 
+        # Determine winner
+        winner = propagation.winner()
+        if winner is None:
+            winner = parse.best_interpretation()
+
+        if not parse.is_resolved and winner:
+            parse.mark_resolved(winner.label, method="converged")
+
+        winner_result = self._find_winner_result(all_results, winner)
+
+        return self._build_branching_result(parse, winner, winner_result, all_results, propagation)
+
+    def _execute_unambiguous(self, parse: AmbiguousParse) -> BranchingResult:
+        """Handle the unambiguous (single interpretation) fast path."""
+        interp = parse.interpretations[0]
+        result = self._execute_one(interp)
+        return BranchingResult(
+            parse_id=parse.id,
+            source=parse.source,
+            winner_label=interp.label,
+            winner_value=result.value,
+            winner_confidence=1.0,
+            all_results=[result],
+            propagation_summary=None,
+            metadata={"unambiguous": True},
+        )
+
+    def _propagate_execution_results(
+        self,
+        parse: AmbiguousParse,
+        all_results: list[ExecutionResult],
+        propagation: ConfidencePropagation,
+    ) -> None:
+        """Feed execution results into the confidence propagation engine."""
         for result in all_results:
             propagation.add_execution_result(
                 label=result.label,
@@ -815,22 +847,28 @@ class BranchingExecutor:
                 if interp.label == result.label:
                     interp.confidence = result.confidence
 
-        propagation.next_round()
+    def _find_winner_result(
+        self,
+        all_results: list[ExecutionResult],
+        winner: Optional[Interpretation],
+    ) -> ExecutionResult:
+        """Find the ExecutionResult matching the winning interpretation."""
+        if winner:
+            return next(
+                (r for r in all_results if r.label == winner.label),
+                all_results[0],
+            )
+        return all_results[0]
 
-        # Determine winner
-        winner = propagation.winner()
-        if winner is None:
-            # No convergence — use weighted confidence
-            winner = parse.best_interpretation()
-
-        if not parse.is_resolved and winner:
-            parse.mark_resolved(winner.label, method="converged")
-
-        winner_result = next(
-            (r for r in all_results if r.label == winner.label),
-            all_results[0],
-        )
-
+    def _build_branching_result(
+        self,
+        parse: AmbiguousParse,
+        winner: Optional[Interpretation],
+        winner_result: ExecutionResult,
+        all_results: list[ExecutionResult],
+        propagation: ConfidencePropagation,
+    ) -> BranchingResult:
+        """Build the final BranchingResult."""
         return BranchingResult(
             parse_id=parse.id,
             source=parse.source,

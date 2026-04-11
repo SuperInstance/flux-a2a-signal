@@ -232,88 +232,53 @@ class Compiler:
     # Expression compilation
     # ------------------------------------------------------------------
 
+    # Dispatch table: op name → handler method name
+    _COMPILE_OPS: dict[str, str] = {
+        # Arithmetic
+        "add": "_compile_arithmetic", "sub": "_compile_arithmetic",
+        "mul": "_compile_arithmetic", "div": "_compile_arithmetic", "mod": "_compile_arithmetic",
+        # Comparison
+        "eq": "_compile_comparison", "neq": "_compile_comparison", "lt": "_compile_comparison",
+        "lte": "_compile_comparison", "gt": "_compile_comparison", "gte": "_compile_comparison",
+        # Logic
+        "and": "_compile_logic", "or": "_compile_logic", "not": "_compile_logic", "xor": "_compile_logic",
+        # String / Collection
+        "concat": "_compile_concat", "length": "_compile_length", "at": "_compile_at",
+        "collect": "_compile_collect", "reduce": "_compile_reduce",
+        # Control flow
+        "seq": "_compile_seq", "if": "_compile_if", "loop": "_compile_loop",
+        "while": "_compile_while", "match": "_compile_match",
+        # Variables
+        "let": "_compile_let", "get": "_compile_get", "set": "_compile_set", "struct": "_compile_struct",
+        # Agent communication
+        "tell": "_compile_tell", "ask": "_compile_ask", "delegate": "_compile_delegate",
+        "broadcast": "_compile_broadcast", "signal": "_compile_signal", "await": "_compile_await",
+        # Agent operations
+        "branch": "_compile_branch", "fork": "_compile_fork", "merge": "_compile_merge",
+        "co_iterate": "_compile_co_iterate",
+        # Trust & confidence
+        "trust": "_compile_trust", "confidence": "_compile_confidence",
+    }
+
     def _compile_expr(self, expr: Any, chunk: BytecodeChunk) -> None:
         from flux_a2a.schema import Expression
 
         if not isinstance(expr, Expression):
             expr = Expression.from_dict(expr) if isinstance(expr, dict) else Expression(op="literal", params={"value": expr})
 
-        # Language tag
-        if expr.lang and expr.lang != "flux":
-            chunk.emit(BcOp.LANG_TAG.value, expr.lang, source=f"lang:{expr.op}")
-            chunk.lang_tags[-1] = expr.lang
+        self._emit_lang_and_confidence(expr, chunk)
 
-        # Confidence
-        if expr.confidence < 1.0:
-            chunk.emit(BcOp.CONFIDENCE.value, expr.confidence, source=f"conf:{expr.op}")
+        method_name = self._COMPILE_OPS.get(expr.op)
+        if method_name:
+            getattr(self, method_name)(expr, chunk)
+            return
 
-        op = expr.op
-
-        # --- Arithmetic ---
-        if op in ("add", "sub", "mul", "div", "mod"):
-            self._compile_arithmetic(op, expr, chunk)
-        elif op in ("eq", "neq", "lt", "lte", "gt", "gte"):
-            self._compile_comparison(op, expr, chunk)
-        elif op in ("and", "or", "not", "xor"):
-            self._compile_logic(op, expr, chunk)
-        elif op == "concat":
-            self._compile_concat(expr, chunk)
-        elif op == "length":
-            self._compile_length(expr, chunk)
-        elif op == "at":
-            self._compile_at(expr, chunk)
-        elif op == "collect":
-            self._compile_collect(expr, chunk)
-        elif op == "reduce":
-            self._compile_reduce(expr, chunk)
-        elif op == "seq":
-            self._compile_seq(expr, chunk)
-        elif op == "if":
-            self._compile_if(expr, chunk)
-        elif op == "loop":
-            self._compile_loop(expr, chunk)
-        elif op == "while":
-            self._compile_while(expr, chunk)
-        elif op == "match":
-            self._compile_match(expr, chunk)
-        elif op == "let":
-            self._compile_let(expr, chunk)
-        elif op == "get":
-            self._compile_get(expr, chunk)
-        elif op == "set":
-            self._compile_set(expr, chunk)
-        elif op == "struct":
-            self._compile_struct(expr, chunk)
-        elif op == "tell":
-            self._compile_tell(expr, chunk)
-        elif op == "ask":
-            self._compile_ask(expr, chunk)
-        elif op == "delegate":
-            self._compile_delegate(expr, chunk)
-        elif op == "broadcast":
-            self._compile_broadcast(expr, chunk)
-        elif op == "signal":
-            self._compile_signal(expr, chunk)
-        elif op == "await":
-            self._compile_await(expr, chunk)
-        elif op == "branch":
-            self._compile_branch(expr, chunk)
-        elif op == "fork":
-            self._compile_fork(expr, chunk)
-        elif op == "merge":
-            self._compile_merge(expr, chunk)
-        elif op == "co_iterate":
-            self._compile_co_iterate(expr, chunk)
-        elif op == "trust":
-            self._compile_trust(expr, chunk)
-        elif op == "confidence":
-            self._compile_confidence(expr, chunk)
-        elif op == "literal":
+        # Special / fallback ops
+        if expr.op == "literal":
             chunk.emit_push(expr.get("value"), source="literal")
-        elif op == "yield":
-            # Yield is a no-op in compiled mode — just keeps value on stack
-            pass
-        elif op == "eval":
+        elif expr.op == "yield":
+            pass  # Yield is a no-op in compiled mode
+        elif expr.op == "eval":
             inner = expr.get("expr", {})
             if isinstance(inner, dict) and "op" in inner:
                 self._compile_expr(inner, chunk)
@@ -321,7 +286,15 @@ class Compiler:
                 chunk.emit_push(inner, source="eval")
         else:
             # Unknown — emit as NOP for forward compatibility
-            chunk.emit(BcOp.NOP.value, f"unknown:{op}", source=f"unknown_op:{op}")
+            chunk.emit(BcOp.NOP.value, f"unknown:{expr.op}", source=f"unknown_op:{expr.op}")
+
+    def _emit_lang_and_confidence(self, expr: Any, chunk: BytecodeChunk) -> None:
+        """Emit language tag and confidence metadata if applicable."""
+        if expr.lang and expr.lang != "flux":
+            chunk.emit(BcOp.LANG_TAG.value, expr.lang, source=f"lang:{expr.op}")
+            chunk.lang_tags[-1] = expr.lang
+        if expr.confidence < 1.0:
+            chunk.emit(BcOp.CONFIDENCE.value, expr.confidence, source=f"conf:{expr.op}")
 
     def _compile_value(self, value: Any, chunk: BytecodeChunk) -> None:
         """Compile a value (literal or expression) to bytecode."""

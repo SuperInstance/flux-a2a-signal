@@ -120,6 +120,14 @@ class TypeCompatibility:
         self.confidence_weight = confidence_weight
         self.paradigm_weight = paradigm_weight
 
+    def _compute_weighted_score(self, base_c: float, constraint_c: float,
+                               confidence_c: float, paradigm_c: float,
+                               a: FluxType, b: FluxType) -> float:
+        """Compute weighted product score with quantum adjustment."""
+        raw = (base_c ** self.base_weight) * (constraint_c ** self.constraint_weight) * \
+              (confidence_c ** self.confidence_weight) * (paradigm_c ** self.paradigm_weight)
+        return min(1.0, raw * self._quantum_adjustment(a, b))
+
     def compute(self, a: FluxType, b: FluxType) -> CompatibilityReport:
         """Compute full compatibility report between two FluxTypes.
 
@@ -130,44 +138,17 @@ class TypeCompatibility:
         Returns:
             A CompatibilityReport with score, level, warnings, suggestions.
         """
-        # 1. Base type compatibility
-        base_compat = self._base_compatibility(a, b)
-
-        # 2. Constraint compatibility
-        constraint_compat = self._constraint_compatibility(a, b)
-
-        # 3. Confidence agreement
-        confidence_compat = self._confidence_compatibility(a, b)
-
-        # 4. Paradigm distance
-        paradigm_compat = self._paradigm_compatibility(a, b)
-
-        # Weighted product (geometric mean with weights)
-        raw_score = (
-            (base_compat ** self.base_weight) *
-            (constraint_compat ** self.constraint_weight) *
-            (confidence_compat ** self.confidence_weight) *
-            (paradigm_compat ** self.paradigm_weight)
-        )
-
-        # Adjust for quantum state
-        quantum_adjust = self._quantum_adjustment(a, b)
-        score = min(1.0, raw_score * quantum_adjust)
-
-        # Determine level
-        level = self._classify_level(score, base_compat, constraint_compat)
-
-        # Generate warnings and suggestions
+        base_c = self._base_compatibility(a, b)
+        constraint_c = self._constraint_compatibility(a, b)
+        confidence_c = self._confidence_compatibility(a, b)
+        paradigm_c = self._paradigm_compatibility(a, b)
+        score = self._compute_weighted_score(base_c, constraint_c, confidence_c, paradigm_c, a, b)
+        level = self._classify_level(score, base_c, constraint_c)
         warnings, suggestions = self._generate_feedback(a, b, score, level)
-
         return CompatibilityReport(
-            score=score,
-            level=level,
-            warnings=warnings,
-            suggestions=suggestions,
-            base_compatibility=base_compat,
-            constraint_compatibility=constraint_compat,
-            confidence_factor=confidence_compat,
+            score=score, level=level, warnings=warnings, suggestions=suggestions,
+            base_compatibility=base_c, constraint_compatibility=constraint_c,
+            confidence_factor=confidence_c,
         )
 
     def _base_compatibility(self, a: FluxType, b: FluxType) -> float:
@@ -304,53 +285,41 @@ class TypeCompatibility:
             return CompatibilityLevel.INCOMPATIBLE
         return CompatibilityLevel.CONTRADICTORY
 
-    def _generate_feedback(
-        self,
-        a: FluxType,
-        b: FluxType,
-        score: float,
-        level: CompatibilityLevel,
-    ) -> Tuple[List[str], List[str]]:
-        """Generate human-readable warnings and suggestions."""
+    def _collect_warnings(self, a: FluxType, b: FluxType,
+                            score: float) -> List[str]:
+        """Collect compatibility warnings."""
         warnings: List[str] = []
-        suggestions: List[str] = []
-
-        # Base type warnings
         if a.effective_base_type() != b.effective_base_type():
             warnings.append(
                 f"Base type mismatch: {a.effective_base_type().name} vs "
                 f"{b.effective_base_type().name} "
                 f"(spectrum distance: {a.effective_base_type().spectrum_distance(b.effective_base_type()):.0f})"
             )
-
-        # Confidence warnings
         if abs(a.confidence - b.confidence) > 0.3:
             low = a if a.confidence < b.confidence else b
             warnings.append(
                 f"Confidence gap: {a.confidence:.2f} vs {b.confidence:.2f} "
                 f"({low.paradigm_source} type is uncertain)"
             )
-
-        # Paradigm warnings
         if a.paradigm_source != b.paradigm_source:
             warnings.append(
                 f"Cross-paradigm type check: {a.paradigm_source} ↔ {b.paradigm_source}"
             )
-
-        # Quantum state warnings
         if a.quantum_state and not a.quantum_state.collapsed:
             warnings.append(
                 f"Type {a.name or a.id} is in quantum superposition "
                 f"(entropy={a.quantum_state.entropy():.2f})"
             )
-
-        # Contextual type warnings
         if a.base_type == FluxBaseType.CONTEXTUAL or b.base_type == FluxBaseType.CONTEXTUAL:
             warnings.append(
                 "Context-dependent type: compatibility may change at runtime"
             )
+        return warnings
 
-        # Suggestions for low compatibility
+    def _collect_suggestions(self, a: FluxType, b: FluxType,
+                              score: float) -> List[str]:
+        """Collect compatibility suggestions."""
+        suggestions: List[str] = []
         if score < 0.5:
             suggestions.append(
                 "Consider using TypeBridge to convert between paradigms"
@@ -360,19 +329,27 @@ class TypeCompatibility:
                     f"Route through Latin (lat) hub for {a.paradigm_source} ↔ "
                     f"{b.paradigm_source} bridging"
                 )
-
         if a.base_type == FluxBaseType.CONTEXTUAL:
             suggestions.append(
                 "Use runtime context resolution before type checking"
             )
-
-        if score >= 0.6 and score < 0.8:
+        if 0.6 <= score < 0.8:
             suggestions.append(
                 f"Acceptable compatibility ({score:.2f}); verify semantics "
                 f"are preserved in the target paradigm"
             )
+        return suggestions
 
-        return warnings, suggestions
+    def _generate_feedback(
+        self,
+        a: FluxType,
+        b: FluxType,
+        score: float,
+        level: CompatibilityLevel,
+    ) -> Tuple[List[str], List[str]]:
+        """Generate human-readable warnings and suggestions."""
+        return (self._collect_warnings(a, b, score),
+                self._collect_suggestions(a, b, score))
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -637,63 +614,59 @@ class TypeBridge:
             cost=total_cost,
         )
 
-    def _bridge_to_hub(self, source: FluxType) -> BridgeResult:
-        """Bridge from source paradigm to hub paradigm."""
-        if source.paradigm_source == self.hub_paradigm:
-            return BridgeResult(
-                target_type=source,
-                strategy=BridgeStrategy.DIRECT,
-                fidelity=1.0,
-                cost=0.0,
-            )
-
-        # Try direct mapping to hub
+    def _bridge_to_hub_direct(self, source: FluxType) -> Optional[BridgeResult]:
+        """Try direct constraint mapping to hub paradigm."""
         for c in source.constraints:
             key = (c.language, c.value)
             if key in self._CROSS_MAPPINGS:
                 tgt_lang, tgt_tag = self._CROSS_MAPPINGS[key]
                 if tgt_lang == self.hub_paradigm:
                     hub_type = FluxType.from_paradigm(
-                        tgt_lang, tgt_tag,
-                        confidence=source.confidence * 0.95,
+                        tgt_lang, tgt_tag, confidence=source.confidence * 0.95,
                     )
                     return BridgeResult(
-                        target_type=hub_type,
-                        strategy=BridgeStrategy.DIRECT,
-                        fidelity=0.95,
-                        cost=0.05,
+                        target_type=hub_type, strategy=BridgeStrategy.DIRECT,
+                        fidelity=0.95, cost=0.05,
                     )
+        return None
 
-        # Fall back to base type mapping
+    def _bridge_to_hub_base_type(self, source: FluxType) -> Optional[BridgeResult]:
+        """Try base type mapping to hub paradigm."""
         hub_tags = _PARADIGM_TO_BASE.get(self.hub_paradigm, {})
         for tag, base in hub_tags.items():
             if base == source.base_type:
                 hub_type = FluxType.from_paradigm(
-                    self.hub_paradigm, tag,
-                    confidence=source.confidence * 0.8,
+                    self.hub_paradigm, tag, confidence=source.confidence * 0.8,
                 )
                 return BridgeResult(
-                    target_type=hub_type,
-                    strategy=BridgeStrategy.UPCAST,
-                    fidelity=0.8,
-                    cost=0.15,
+                    target_type=hub_type, strategy=BridgeStrategy.UPCAST,
+                    fidelity=0.8, cost=0.15,
                     warnings=["No direct mapping; used base type"],
                 )
+        return None
 
-        # Last resort: generic
+    def _bridge_to_hub_fallback(self, source: FluxType) -> BridgeResult:
+        """Last-resort hub bridging via constraint stripping."""
         hub_type = FluxType(
-            base_type=source.base_type,
-            confidence=source.confidence * 0.7,
-            paradigm_source=self.hub_paradigm,
-            name=f"bridged:{source.name}",
+            base_type=source.base_type, confidence=source.confidence * 0.7,
+            paradigm_source=self.hub_paradigm, name=f"bridged:{source.name}",
         )
         return BridgeResult(
-            target_type=hub_type,
-            strategy=BridgeStrategy.CONSTRAINT_STRIPPING,
-            fidelity=0.7,
-            cost=0.25,
+            target_type=hub_type, strategy=BridgeStrategy.CONSTRAINT_STRIPPING,
+            fidelity=0.7, cost=0.25,
             warnings=["No base type match in hub; stripped constraints"],
         )
+
+    def _bridge_to_hub(self, source: FluxType) -> BridgeResult:
+        """Bridge from source paradigm to hub paradigm."""
+        if source.paradigm_source == self.hub_paradigm:
+            return BridgeResult(
+                target_type=source, strategy=BridgeStrategy.DIRECT,
+                fidelity=1.0, cost=0.0,
+            )
+        return (self._bridge_to_hub_direct(source)
+                or self._bridge_to_hub_base_type(source)
+                or self._bridge_to_hub_fallback(source))
 
     def _bridge_from_hub(
         self, hub_type: FluxType, target_lang: str
@@ -952,6 +925,42 @@ class UniversalTypeChecker:
         self.threshold = compatibility_threshold
         self.auto_bridge = auto_bridge
 
+    def _collect_type_errors(self, expected: FluxType,
+                              actual: FluxType,
+                              report: CompatibilityReport) -> List[str]:
+        """Collect type check errors from a compatibility report."""
+        errors: List[str] = []
+        if report.score < self.threshold:
+            errors.append(
+                f"Type compatibility {report.score:.2f} below threshold {self.threshold:.2f}"
+            )
+            if report.level in (CompatibilityLevel.CONTRADICTORY,
+                                CompatibilityLevel.INCOMPATIBLE):
+                errors.append(
+                    f"Types are {report.level.value}: "
+                    f"{expected.base_type.name} vs {actual.base_type.name}"
+                )
+        if (expected.base_type == FluxBaseType.CONTEXTUAL or
+                actual.base_type == FluxBaseType.CONTEXTUAL):
+            errors.append(
+                "Context-dependent type: deferring to runtime resolution"
+            )
+        if expected.quantum_state and not expected.quantum_state.collapsed:
+            errors.append(
+                f"Expected type is in superposition "
+                f"(entropy={expected.quantum_state.entropy():.2f})"
+            )
+        return errors
+
+    def _try_auto_bridge(self, expected: FluxType, actual: FluxType,
+                        report: CompatibilityReport) -> Tuple[Optional[BridgeResult], bool]:
+        """Attempt auto-bridge translation between paradigms."""
+        if not ((not report.score < self.threshold or len(report.errors) > 0) and self.auto_bridge):
+            return None, False
+        if expected.paradigm_source != actual.paradigm_source:
+            return self.bridge.translate(actual, expected.paradigm_source), True
+        return None, False
+
     def check(
         self,
         expected: FluxType,
@@ -967,53 +976,45 @@ class UniversalTypeChecker:
             A TypeCheckResult with compatibility information.
         """
         report = self.compatibility.compute(expected, actual)
-        errors = []
-
-        # Low score → errors
-        if report.score < self.threshold:
-            errors.append(
-                f"Type compatibility {report.score:.2f} below threshold "
-                f"{self.threshold:.2f}"
-            )
-            if report.level in (CompatibilityLevel.CONTRADICTORY,
-                                CompatibilityLevel.INCOMPATIBLE):
-                errors.append(
-                    f"Types are {report.level.value}: "
-                    f"{expected.base_type.name} vs {actual.base_type.name}"
-                )
-
-        # Contextual types → defer
-        if (expected.base_type == FluxBaseType.CONTEXTUAL or
-                actual.base_type == FluxBaseType.CONTEXTUAL):
-            errors.append(
-                "Context-dependent type: deferring to runtime resolution"
-            )
-
-        # Quantum types → propagate
-        if (expected.quantum_state and not expected.quantum_state.collapsed):
-            errors.append(
-                f"Expected type is in superposition "
-                f"(entropy={expected.quantum_state.entropy():.2f})"
-            )
-
-        # Try auto-bridge if not compatible
-        bridge_result = None
-        required_bridge = False
-        if (not errors or report.score < 0.7) and self.auto_bridge:
-            if expected.paradigm_source != actual.paradigm_source:
-                bridge_result = self.bridge.translate(
-                    actual, expected.paradigm_source
-                )
-                required_bridge = True
-
+        errors = self._collect_type_errors(expected, actual, report)
+        bridge_result, required_bridge = self._try_auto_bridge(expected, actual, report)
         return TypeCheckResult(
             is_compatible=report.score >= self.threshold,
-            score=report.score,
-            report=report,
+            score=report.score, report=report,
             required_bridge=required_bridge,
-            bridge_result=bridge_result,
-            errors=errors,
+            bridge_result=bridge_result, errors=errors,
         )
+
+    def _check_argument_types(self, signature: FluxTypeSignature,
+                            arguments: List[FluxType]
+                            ) -> Tuple[List[str], List[float]]:
+        """Check each argument against the signature inputs.
+
+        Returns (errors, scores).
+        """
+        errors: List[str] = []
+        scores: List[float] = []
+        for i, (expected, actual) in enumerate(zip(signature.inputs, arguments)):
+            result = self.check(expected, actual)
+            scores.append(result.score)
+            if not result.is_compatible:
+                errors.append(f"Argument {i}: {result.errors}")
+            if result.report:
+                errors.extend(result.report.warnings)
+        return errors, scores
+
+    def _check_capability_requirements(
+        self, signature: FluxTypeSignature,
+        arguments: List[FluxType],
+    ) -> List[str]:
+        """Check capability requirements from a signature."""
+        errors: List[str] = []
+        for req in signature.requires:
+            if not any(arg.has_constraint(req.kind) for arg in arguments):
+                errors.append(
+                    f"Unsatisfied requirement: {req.kind.value} (from {req.language})"
+                )
+        return errors
 
     def check_signature(
         self,
@@ -1029,51 +1030,18 @@ class UniversalTypeChecker:
         Returns:
             A TypeCheckResult for the whole signature.
         """
-        errors: List[str] = []
-        scores: List[float] = []
-
-        # Check arity
         if len(arguments) != len(signature.inputs):
-            errors.append(
-                f"Arity mismatch: expected {len(signature.inputs)}, "
-                f"got {len(arguments)}"
-            )
             return TypeCheckResult(
-                is_compatible=False,
-                score=0.0,
-                errors=errors,
+                is_compatible=False, score=0.0,
+                errors=[f"Arity mismatch: expected {len(signature.inputs)}, "
+                         f"got {len(arguments)}"],
             )
-
-        # Check each argument
-        for i, (expected, actual) in enumerate(
-            zip(signature.inputs, arguments)
-        ):
-            result = self.check(expected, actual)
-            scores.append(result.score)
-            if not result.is_compatible:
-                errors.append(f"Argument {i}: {result.errors}")
-            if result.report:
-                errors.extend(result.report.warnings)
-
-        # Check capability requirements
-        for req in signature.requires:
-            satisfied = False
-            for arg in arguments:
-                if arg.has_constraint(req.kind):
-                    satisfied = True
-                    break
-            if not satisfied:
-                errors.append(
-                    f"Unsatisfied requirement: {req.kind.value} "
-                    f"(from {req.language})"
-                )
-
+        errors, scores = self._check_argument_types(signature, arguments)
+        errors.extend(self._check_capability_requirements(signature, arguments))
         avg_score = sum(scores) / len(scores) if scores else 0.0
-
         return TypeCheckResult(
             is_compatible=avg_score >= self.threshold and not errors,
-            score=avg_score,
-            errors=errors,
+            score=avg_score, errors=errors,
         )
 
     def suggest_bridge(

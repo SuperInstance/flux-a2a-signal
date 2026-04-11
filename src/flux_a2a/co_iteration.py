@@ -530,8 +530,6 @@ class CoIterationEngine:
            e. Log step
         2. Merge final results
         """
-        from flux_a2a.interpreter import Interpreter
-
         cursors = shared.get_all_cursors()
         if not cursors:
             return Result(
@@ -541,12 +539,7 @@ class CoIterationEngine:
                 error="No agents registered",
             )
 
-        # Create interpreters for each agent
-        interpreters: dict[str, Interpreter] = {}
-        for agent_id in cursors:
-            interp = Interpreter(agent_id=agent_id, message_bus=self.message_bus)
-            interpreters[agent_id] = interp
-
+        interpreters = self._create_interpreters(list(cursors.keys()))
         step = 0
         max_steps = shared.length * len(cursors) * 10  # Safety limit
 
@@ -556,58 +549,100 @@ class CoIterationEngine:
                 cid for cid, cursor in cursors.items()
                 if cursor.position < shared.length and not cursor.blocked
             ]
-
             if not active_agents:
                 break
 
-            # Detect conflicts
             conflicts = shared.detect_conflicts()
-            for conflict in conflicts:
-                resolved = self.conflict_resolver.resolve(conflict, shared)
-                # Unblock agents after resolution
-                for agent_id in conflict.agents:
-                    cursor = cursors.get(agent_id)
-                    if cursor:
-                        cursor.blocked = False
+            self._resolve_step_conflicts(conflicts, cursors, shared)
+            agent_results = self._evaluate_active_agents(
+                active_agents, cursors, shared, interpreters,
+            )
 
-            # Evaluate current position for each active agent
-            agent_results: dict[str, Result] = {}
-            for agent_id in active_agents:
-                cursor = cursors[agent_id]
-                expr = shared.get_expression(cursor.position)
-                if expr is None:
-                    continue
-
-                interp = interpreters[agent_id]
-                result = interp.evaluate(expr)
-                cursor.evaluation_result = result
-                cursor.confidence_at_position = result.confidence
-                shared.set_evaluated(cursor.position, result)
-                agent_results[agent_id] = result
-
-            # Check consensus
             if agent_results:
-                agreed, agreement_level, consensus_value = self.consensus_model.check_agreement(agent_results)
+                agreed, agreement_level, _ = self.consensus_model.check_agreement(agent_results)
+                self._log_step(step, active_agents, cursors, agreed, agreement_level, conflicts)
 
-                self._step_log.append({
-                    "step": step,
-                    "active_agents": active_agents,
-                    "positions": {aid: cursors[aid].position for aid in active_agents},
-                    "agreement": agreed,
-                    "agreement_level": agreement_level,
-                    "conflicts": len(conflicts),
-                })
-
-            # Advance agents
             for agent_id in active_agents:
-                cursor = cursors[agent_id]
-                cursor.advance(1)
+                cursors[agent_id].advance(1)
 
-        # Gather final results
-        final_results: list[Result] = []
-        for agent_id, cursor in cursors.items():
-            if cursor.evaluation_result:
-                final_results.append(cursor.evaluation_result)
+        return self._build_final_result(cursors, step, shared)
+
+    # -- Private helpers for execute ----------------------------------------
+
+    def _create_interpreters(self, agent_ids: list[str]) -> dict:
+        """Create an interpreter instance for each agent."""
+        from flux_a2a.interpreter import Interpreter
+        return {
+            aid: Interpreter(agent_id=aid, message_bus=self.message_bus)
+            for aid in agent_ids
+        }
+
+    def _resolve_step_conflicts(
+        self,
+        conflicts: list[ConflictEvent],
+        cursors: dict[str, AgentCursor],
+        shared: SharedProgram,
+    ) -> None:
+        """Resolve detected conflicts and unblock agents."""
+        for conflict in conflicts:
+            self.conflict_resolver.resolve(conflict, shared)
+            for agent_id in conflict.agents:
+                cursor = cursors.get(agent_id)
+                if cursor:
+                    cursor.blocked = False
+
+    def _evaluate_active_agents(
+        self,
+        active_agents: list[str],
+        cursors: dict[str, AgentCursor],
+        shared: SharedProgram,
+        interpreters: dict,
+    ) -> dict[str, Result]:
+        """Evaluate the current expression for each active agent."""
+        agent_results: dict[str, Result] = {}
+        for agent_id in active_agents:
+            cursor = cursors[agent_id]
+            expr = shared.get_expression(cursor.position)
+            if expr is None:
+                continue
+            result = interpreters[agent_id].evaluate(expr)
+            cursor.evaluation_result = result
+            cursor.confidence_at_position = result.confidence
+            shared.set_evaluated(cursor.position, result)
+            agent_results[agent_id] = result
+        return agent_results
+
+    def _log_step(
+        self,
+        step: int,
+        active_agents: list[str],
+        cursors: dict[str, AgentCursor],
+        agreed: bool,
+        agreement_level: float,
+        conflicts: list[ConflictEvent],
+    ) -> None:
+        """Append a step log entry for the current iteration."""
+        self._step_log.append({
+            "step": step,
+            "active_agents": active_agents,
+            "positions": {aid: cursors[aid].position for aid in active_agents},
+            "agreement": agreed,
+            "agreement_level": agreement_level,
+            "conflicts": len(conflicts),
+        })
+
+    def _build_final_result(
+        self,
+        cursors: dict[str, AgentCursor],
+        step: int,
+        shared: SharedProgram,
+    ) -> Result:
+        """Gather and merge final results from all agents."""
+        final_results: list[Result] = [
+            cursor.evaluation_result
+            for cursor in cursors.values()
+            if cursor.evaluation_result
+        ]
 
         if not final_results:
             return Result(
@@ -618,7 +653,6 @@ class CoIterationEngine:
                 meta={"steps": step, "agents": list(cursors.keys())},
             )
 
-        # Merge final results
         avg_confidence = sum(r.confidence for r in final_results) / len(final_results)
         last_result = final_results[-1]
 

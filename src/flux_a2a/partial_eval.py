@@ -200,37 +200,10 @@ class PartialEvaluator:
         -------
         PEResult with the residual program and optimization statistics.
         """
-        self._reductions = 0
-        self._residuals = 0
-        self._optimizations = []
-        self._discovered = {}
+        self._reset_state()
         self._knowledge = knowledge or StaticKnowledge()
-
-        if isinstance(program, dict):
-            inner = program.get("signal", program)
-            if "body" in inner:
-                residual_body = self._pe_body(inner["body"])
-                residual = {"signal": {**inner, "body": residual_body}}
-            else:
-                residual = self._pe_expr(program)
-        elif isinstance(program, list):
-            residual = self._pe_body(program)
-        else:
-            residual = program
-
-        total = self._reductions + self._residuals
-        reduction_rate = self._reductions / total if total > 0 else 0.0
-        speedup = 1.0 + reduction_rate * 0.5  # Conservative estimate
-
-        return PEResult(
-            residual=residual,
-            reductions=self._reductions,
-            residuals=self._residuals,
-            reduction_rate=reduction_rate,
-            optimizations_applied=self._optimizations,
-            discovered_constants=self._discovered,
-            speedup_estimate=speedup,
-        )
+        residual = self._evaluate_program(program)
+        return self._build_pe_result(residual)
 
     def project_2(self, interpreter_source: Any, program: Any) -> PEResult:
         """
@@ -247,17 +220,57 @@ class PartialEvaluator:
         This is a simplified implementation that marks which interpreter paths
         are needed for a given program.
         """
+        self._reset_state()
+        ops_used: set[str] = set()
+        self._collect_ops(program, ops_used)
+        all_ops = self._get_all_known_ops()
+        eliminated_ops = all_ops - ops_used
+        self._record_eliminations(eliminated_ops, ops_used)
+        return self._build_projection_result(ops_used, eliminated_ops)
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _reset_state(self) -> None:
+        """Reset all mutable evaluation state."""
         self._reductions = 0
         self._residuals = 0
         self._optimizations = []
         self._discovered = {}
 
-        # Extract all ops used by the program
-        ops_used: set[str] = set()
-        self._collect_ops(program, ops_used)
+    def _evaluate_program(self, program: Any) -> Any:
+        """Route the program to the appropriate PE entry point."""
+        if isinstance(program, dict):
+            inner = program.get("signal", program)
+            if "body" in inner:
+                residual_body = self._pe_body(inner["body"])
+                return {"signal": {**inner, "body": residual_body}}
+            return self._pe_expr(program)
+        if isinstance(program, list):
+            return self._pe_body(program)
+        return program
 
-        # Compute the specialized interpreter surface
-        all_ops = {
+    def _build_pe_result(self, residual: Any) -> PEResult:
+        """Build the PEResult from current evaluation state."""
+        total = self._reductions + self._residuals
+        reduction_rate = self._reductions / total if total > 0 else 0.0
+        speedup = 1.0 + reduction_rate * 0.5  # Conservative estimate
+
+        return PEResult(
+            residual=residual,
+            reductions=self._reductions,
+            residuals=self._residuals,
+            reduction_rate=reduction_rate,
+            optimizations_applied=self._optimizations,
+            discovered_constants=self._discovered,
+            speedup_estimate=speedup,
+        )
+
+    @staticmethod
+    def _get_all_known_ops() -> set[str]:
+        """Return the set of all known operator names."""
+        return {
             "add", "sub", "mul", "div", "mod", "eq", "neq", "lt", "lte", "gt", "gte",
             "and", "or", "not", "xor", "concat", "length", "at", "collect", "reduce",
             "seq", "if", "loop", "while", "match", "let", "get", "set", "struct",
@@ -265,16 +278,19 @@ class PartialEvaluator:
             "branch", "fork", "merge", "co_iterate", "trust", "confidence",
             "literal", "yield", "eval", "discuss", "synthesize", "reflect",
         }
-        eliminated_ops = all_ops - ops_used
 
+    def _record_eliminations(self, eliminated_ops: set[str], ops_used: set[str]) -> None:
+        """Record eliminated ops in the optimization stats."""
         if eliminated_ops:
             self._optimizations.append(f"eliminated_{len(eliminated_ops)}_ops")
             self._reductions += len(eliminated_ops)
-
         self._residuals += len(ops_used)
+
+    def _build_projection_result(self, ops_used: set[str], eliminated_ops: set[str]) -> PEResult:
+        """Build the PEResult for a Futamura Projection 2 analysis."""
+        all_ops = self._get_all_known_ops()
         total = self._reductions + self._residuals
 
-        # Build the specialized interpreter spec
         specialized = {
             "projection": "futamura_2",
             "ops_required": sorted(ops_used),
@@ -316,6 +332,18 @@ class PartialEvaluator:
     # Expression Evaluation
     # ------------------------------------------------------------------
 
+    # Dispatch table: op name → handler method name
+    _PE_OP_HANDLERS: dict[str, str] = {
+        "let": "_pe_let",
+        "get": "_pe_get",
+        "if": "_pe_if",
+        "seq": "_pe_seq",
+        "loop": "_pe_loop",
+        "struct": "_pe_struct",
+        "resolve_nl": "_pe_nl_resolution",
+        "nl": "_pe_nl_resolution",
+    }
+
     def _pe_expr(self, expr: dict[str, Any]) -> Any:
         """Partially evaluate a single expression.
 
@@ -332,45 +360,18 @@ class PartialEvaluator:
             self._reductions += 1
             return expr.get("value")
 
-        # --- Let: if value is known, propagate ---
-        if op == "let":
-            return self._pe_let(expr)
+        # --- Dispatch table for known ops ---
+        handler_name = self._PE_OP_HANDLERS.get(op)
+        if handler_name is not None:
+            return getattr(self, handler_name)(expr)
 
-        # --- Get: if variable is known, substitute ---
-        if op == "get":
-            return self._pe_get(expr)
-
-        # --- Arithmetic: try constant folding ---
+        # --- Dynamic dispatch by category ---
         if op in self._ARITH_OPS:
             return self._pe_arithmetic(op, expr)
-
-        # --- Comparison: try constant folding ---
         if op in self._CMP_OPS:
             return self._pe_comparison(op, expr)
-
-        # --- Logic: try constant folding ---
         if op in ("and", "or", "not"):
             return self._pe_logic(op, expr)
-
-        # --- If: try branch elimination ---
-        if op == "if":
-            return self._pe_if(expr)
-
-        # --- Seq: recurse into body ---
-        if op == "seq":
-            return self._pe_seq(expr)
-
-        # --- Loop with known count: try unrolling (aggressive only) ---
-        if op == "loop":
-            return self._pe_loop(expr)
-
-        # --- Struct: try field reduction ---
-        if op == "struct":
-            return self._pe_struct(expr)
-
-        # --- Vocabulary fast-path: known NL terms ---
-        if op == "resolve_nl" or op == "nl":
-            return self._pe_nl_resolution(expr)
 
         # --- Default: mark as residual ---
         self._residuals += 1

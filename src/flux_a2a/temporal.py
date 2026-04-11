@@ -254,26 +254,11 @@ class TemporalLogic:
                 first_violation=0,
             )
 
-        # Compute per-step truth values using recursive LTL evaluation
-        # For efficiency, we use a bottom-up approach with memoization
         n = len(trace)
-        evaluation_at: dict[int, bool] = {}
-
-        # Evaluate at each position with memoization
         memo: dict[tuple[str, int], bool] = {}
-
-        for i in range(n):
-            evaluation_at[i] = self._eval_at(formula, i, trace, n, memo)
-
-        # Overall result: formula holds at position 0
+        evaluation_at = self._build_evaluation_map(formula, trace, n, memo)
         result = evaluation_at.get(0, False)
-
-        # Find first violation
-        first_violation = -1
-        for i in range(n):
-            if not evaluation_at.get(i, False):
-                first_violation = i
-                break
+        first_violation = self._find_first_violation(evaluation_at, n)
 
         return LTLEvaluation(
             formula=str(formula),
@@ -281,6 +266,22 @@ class TemporalLogic:
             first_violation=first_violation,
             evaluation_at=evaluation_at,
         )
+
+    def _build_evaluation_map(
+        self, formula: LTLFormula, trace: list[dict[str, Any]],
+        trace_len: int, memo: dict[tuple[str, int], bool],
+    ) -> dict[int, bool]:
+        """Build per-step truth values for the formula with memoization."""
+        return {i: self._eval_at(formula, i, trace, trace_len, memo)
+                for i in range(trace_len)}
+
+    @staticmethod
+    def _find_first_violation(evaluation_at: dict[int, bool], n: int) -> int:
+        """Find the index of the first violation, or -1 if none."""
+        for i in range(n):
+            if not evaluation_at.get(i, False):
+                return i
+        return -1
 
     def evaluate_batch(
         self,
@@ -318,8 +319,6 @@ class TemporalLogic:
         """Inner evaluation logic for LTL formulas."""
         op = formula.op
         state = trace[index] if index < trace_len else trace[-1]
-
-        # Stuttering: indices beyond trace length use the last state
         effective_index = min(index, trace_len - 1)
 
         if op == LTLOp.TRUE.value:
@@ -341,11 +340,60 @@ class TemporalLogic:
                     self._eval_at(formula.right, index, trace, trace_len, memo))
 
         # Temporal operators
+        temporal_result = self._eval_temporal_op(
+            formula, index, trace, trace_len, memo, effective_index,
+        )
+        if temporal_result is not None:
+            return temporal_result
+
+        return False  # Unknown operator
+
+    def _eval_temporal_op(
+        self,
+        formula: LTLFormula,
+        index: int,
+        trace: list[dict[str, Any]],
+        trace_len: int,
+        memo: dict[tuple[str, int], bool],
+        effective_index: int,
+    ) -> Optional[bool]:
+        """Evaluate temporal operators (NEXT, EVENTUALLY, ALWAYS, UNTIL, WEAK_UNTIL, RELEASE).
+
+        Returns None if the formula's operator is not a temporal operator.
+        """
+        op = formula.op
+
+        # Point operators (single child)
+        point_result = self._eval_temporal_point(
+            formula, index, trace, trace_len, memo, effective_index, op,
+        )
+        if point_result is not None:
+            return point_result
+
+        # Binary temporal operators (left + right children)
+        binary_result = self._eval_temporal_binary(
+            formula, index, trace, trace_len, memo, op,
+        )
+        if binary_result is not None:
+            return binary_result
+
+        return None  # Not a temporal operator
+
+    def _eval_temporal_point(
+        self,
+        formula: LTLFormula,
+        index: int,
+        trace: list[dict[str, Any]],
+        trace_len: int,
+        memo: dict[tuple[str, int], bool],
+        effective_index: int,
+        op: str,
+    ) -> Optional[bool]:
+        """Evaluate point temporal operators: NEXT, EVENTUALLY, ALWAYS."""
         if op == LTLOp.NEXT.value and formula.left:
             next_idx = index + 1
             if next_idx >= trace_len:
-                # Stuttering: □P holds at the end iff P holds at the end
-                # ○P at the end evaluates P at the end (stuttering)
+                # Stuttering: ○P at the end evaluates P at the end
                 return self._eval_at(formula.left, effective_index, trace, trace_len, memo)
             return self._eval_at(formula.left, next_idx, trace, trace_len, memo)
 
@@ -363,8 +411,20 @@ class TemporalLogic:
                     return False
             return True
 
+        return None
+
+    def _eval_temporal_binary(
+        self,
+        formula: LTLFormula,
+        index: int,
+        trace: list[dict[str, Any]],
+        trace_len: int,
+        memo: dict[tuple[str, int], bool],
+        op: str,
+    ) -> Optional[bool]:
+        """Evaluate binary temporal operators: UNTIL, WEAK_UNTIL, RELEASE."""
         if op == LTLOp.UNTIL.value and formula.left and formula.right:
-            # P U Q: P holds from now until Q first becomes true (Q must eventually hold)
+            # P U Q: P holds until Q first becomes true (Q must eventually hold)
             for i in range(index, trace_len + 1):
                 if self._eval_at(formula.right, i, trace, trace_len, memo):
                     return True
@@ -383,13 +443,12 @@ class TemporalLogic:
 
         if op == LTLOp.RELEASE.value and formula.left and formula.right:
             # P R Q: Q holds until P holds (and P holds at or before Q stops)
-            # Equivalent to: ¬(¬P U ¬Q)
             for i in range(index, trace_len + 1):
                 if not self._eval_at(formula.right, i, trace, trace_len, memo):
                     return self._eval_at(formula.left, i, trace, trace_len, memo)
             return True  # Q held forever
 
-        return False  # Unknown operator
+        return None
 
 
 # ===========================================================================
@@ -555,67 +614,66 @@ class CTLEvaluator:
 
         if op == CTLOp.ATOM.value:
             return formula.atom in state.propositions
-
         if op == CTLOp.NOT.value and formula.left:
             return not self._eval(formula.left, state, visited)
-
         if op == CTLOp.AND.value and formula.left and formula.right:
             return (self._eval(formula.left, state, visited) and
                     self._eval(formula.right, state, visited))
-
         if op == CTLOp.OR.value and formula.left and formula.right:
             return (self._eval(formula.left, state, visited) or
                     self._eval(formula.right, state, visited))
 
         # Path quantifiers + temporal operators
         if op == CTLOp.AF.value and formula.left:
-            # A◇P: On ALL paths, eventually P holds
-            # Equivalent to: ¬E(¬P U ¬(P ∨ ¬P)) = ¬EG¬P
             return self._all_eventually(formula.left, state, visited)
-
         if op == CTLOp.AG.value and formula.left:
-            # A□P: On ALL paths, always P holds
-            # Equivalent to: ¬EF¬P
             return self._all_always(formula.left, state, visited)
-
         if op == CTLOp.EF.value and formula.left:
-            # E◇P: There EXISTS a path where eventually P holds
-            # Equivalent to: E(true U P)
             return self._exists_eventually(formula.left, state, visited)
-
         if op == CTLOp.EG.value and formula.left:
-            # E□P: There EXISTS a path where always P holds
             return self._exists_always(formula.left, state, visited)
 
+        # Children-based quantifiers (AX / EX / AU / EU)
+        children_result = self._eval_children_quantifier(formula, state, visited)
+        if children_result is not None:
+            return children_result
+
+        return False
+
+    def _eval_children_quantifier(
+        self, formula: CTLFormula, state: BranchPoint,
+        visited: set[str],
+    ) -> Optional[bool]:
+        """Evaluate AX/EX/AU/EU by iterating over children.
+
+        Returns None if the formula's operator is not a children-based quantifier.
+        """
+        op = formula.op
         if op == CTLOp.AX.value and formula.left:
             # A○P: On ALL paths, P holds at the next state
             for child in state.children:
                 if not self._eval(formula.left, child, visited):
                     return False
             return True
-
         if op == CTLOp.EX.value and formula.left:
             # E○P: There EXISTS a path where P holds at the next state
             for child in state.children:
                 if self._eval(formula.left, child, visited):
                     return True
             return False
-
         if op == CTLOp.AU.value and formula.left and formula.right:
             # AU(P, Q): On ALL paths, P holds until Q holds
             for child in state.children:
                 if not self._until_on_path(formula.left, formula.right, child, visited):
                     return False
             return True
-
         if op == CTLOp.EU.value and formula.left and formula.right:
             # EU(P, Q): There EXISTS a path where P holds until Q holds
             for child in state.children:
                 if self._until_on_path(formula.left, formula.right, child, visited):
                     return True
             return False
-
-        return False
+        return None
 
     def _all_eventually(self, formula: CTLFormula, state: BranchPoint,
                         visited: set[str]) -> bool:
@@ -813,37 +871,38 @@ class SessionType:
             raise TypeError("Session is closed; no more operations allowed")
 
         if self.op == SessionOp.SEND.value:
-            if actual_op != SessionOp.SEND:
-                raise TypeError(f"Expected Send(!{self.message_type}), got {actual_op}")
-            if self.remaining is None:
-                return cls.close()
-            return self.remaining
+            return self._step_message_op(SessionOp.SEND, actual_op)
 
         if self.op == SessionOp.RECV.value:
-            if actual_op != SessionOp.RECV:
-                raise TypeError(f"Expected Recv(?{self.message_type}), got {actual_op}")
-            if self.remaining is None:
-                return cls.close()
-            return self.remaining
+            return self._step_message_op(SessionOp.RECV, actual_op)
 
         if self.op == SessionOp.CHOICE.value:
             if actual_op == SessionOp.CHOICE:
                 # The server doesn't choose; it waits
                 return self
-            if selected_label not in self.choices:
-                raise TypeError(f"Unknown choice label: {selected_label}. "
-                                f"Available: {list(self.choices.keys())}")
+            self._validate_choice_label(selected_label, "choice")
             return self.choices[selected_label]
 
         if self.op == SessionOp.RECV_CHOICE.value:
             if actual_op != SessionOp.RECV_CHOICE:
                 raise TypeError(f"Expected Select(⊕), got {actual_op}")
-            if selected_label not in self.choices:
-                raise TypeError(f"Unknown select label: {selected_label}. "
-                                f"Available: {list(self.choices.keys())}")
+            self._validate_choice_label(selected_label, "select")
             return self.choices[selected_label]
 
         raise TypeError(f"Unknown session operation: {self.op}")
+
+    def _step_message_op(self, expected: SessionOp, actual: SessionOp) -> SessionType:
+        """Validate and advance a Send or Recv operation."""
+        if actual != expected:
+            prefix = "!" if expected == SessionOp.SEND else "?"
+            raise TypeError(f"Expected {expected.value}({prefix}{self.message_type}), got {actual}")
+        return self.remaining if self.remaining is not None else self.close()
+
+    def _validate_choice_label(self, label: str, op_desc: str) -> None:
+        """Raise TypeError if *label* is not among the session choices."""
+        if label not in self.choices:
+            raise TypeError(f"Unknown {op_desc} label: {label}. "
+                            f"Available: {list(self.choices.keys())}")
 
     def is_complete(self) -> bool:
         """Check if the session protocol has been completed."""

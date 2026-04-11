@@ -345,13 +345,8 @@ class AgentCausalGraph:
         self.add_agent(source)
         self.add_agent(target)
 
-        edge = CausalEdge(
-            source=(source, self._clocks[source].get_clock(source)),
-            target=(target, self._clocks[target].get_clock(target)),
-            edge_type=edge_type,
-            label=label or f"{source} → {target}",
-            weight=weight,
-        )
+        edge = self._create_edge(source, target, edge_type,
+                                  label or f"{source} → {target}", weight)
 
         self._adj[source].add(target)
         self._reverse_adj[target].add(source)
@@ -361,6 +356,18 @@ class AgentCausalGraph:
         self._clocks[target].merge(self._clocks[source])
 
         return edge
+
+    def _create_edge(self, source: str, target: str,
+                     edge_type: str, label: str,
+                     weight: float) -> CausalEdge:
+        """Create a CausalEdge with clock-annotated endpoints."""
+        return CausalEdge(
+            source=(source, self._clocks[source].get_clock(source)),
+            target=(target, self._clocks[target].get_clock(target)),
+            edge_type=edge_type,
+            label=label,
+            weight=weight,
+        )
 
     def add_fork_edge(self, parent: str, child: str,
                       label: str = "") -> CausalEdge:
@@ -432,13 +439,7 @@ class AgentCausalGraph:
             A list of agent IDs forming the shortest cycle, or None if the
             graph is a DAG.
         """
-        # Build in-degree map
-        in_degree: dict[str, int] = defaultdict(int)
-        for agent_id in self._agents:
-            if agent_id not in in_degree:
-                in_degree[agent_id] = 0
-            for dep in self._adj.get(agent_id, set()):
-                in_degree[dep] += 1
+        in_degree = self._build_in_degree()
 
         # Kahn's: remove nodes with in-degree 0
         queue: deque[str] = deque(
@@ -456,37 +457,46 @@ class AgentCausalGraph:
         if sorted_count == len(self._agents):
             return None  # DAG
 
-        # Find shortest cycle using BFS from each unsorted node
         remaining = [a for a in self._agents if in_degree[a] > 0]
         if not remaining:
             return None
 
         shortest: Optional[list[str]] = None
         for start in remaining:
-            # BFS to find shortest path back to start
-            visited: dict[str, Optional[str]] = {start: None}
-            bfs_queue: deque[str] = deque([start])
-            found = False
-            while bfs_queue and not found:
-                current = bfs_queue.popleft()
-                for neighbor in self._adj.get(current, set()):
-                    if neighbor == start:
-                        # Reconstruct path
-                        path = [start]
-                        node: Optional[str] = current
-                        while node is not None and node != start:
-                            path.append(node)
-                            node = visited[node]
-                        path.reverse()
-                        if shortest is None or len(path) < len(shortest):
-                            shortest = path
-                        found = True
-                        break
-                    if neighbor not in visited:
-                        visited[neighbor] = current
-                        bfs_queue.append(neighbor)
+            cycle = self._bfs_shortest_cycle_from(start)
+            if cycle is not None:
+                if shortest is None or len(cycle) < len(shortest):
+                    shortest = cycle
 
         return shortest
+
+    def _build_in_degree(self) -> dict[str, int]:
+        """Build in-degree map for Kahn's algorithm."""
+        in_degree: dict[str, int] = defaultdict(int)
+        for agent_id in self._agents:
+            for dep in self._adj.get(agent_id, set()):
+                in_degree[dep] += 1
+        return in_degree
+
+    def _bfs_shortest_cycle_from(self, start: str) -> Optional[list[str]]:
+        """BFS from *start* to find the shortest cycle back to *start*."""
+        visited: dict[str, Optional[str]] = {start: None}
+        bfs_queue: deque[str] = deque([start])
+        while bfs_queue:
+            current = bfs_queue.popleft()
+            for neighbor in self._adj.get(current, set()):
+                if neighbor == start:
+                    path = [start]
+                    node: Optional[str] = current
+                    while node is not None and node != start:
+                        path.append(node)
+                        node = visited[node]
+                    path.reverse()
+                    return path
+                if neighbor not in visited:
+                    visited[neighbor] = current
+                    bfs_queue.append(neighbor)
+        return None
 
     def sequential_order(self) -> list[str]:
         """
@@ -542,11 +552,7 @@ class AgentCausalGraph:
             return []
 
         # Compute reachability (transitive closure)
-        reachable: dict[str, set[str]] = defaultdict(set)
-        for agent_id in reversed(topo):
-            for dep in self._adj.get(agent_id, set()):
-                reachable[agent_id].add(dep)
-                reachable[agent_id].update(reachable[dep])
+        reachable = self._compute_reachability(topo)
 
         # Group agents by their "dependency depth" — all agents at the
         # same depth have no mutual causal dependencies
@@ -564,6 +570,15 @@ class AgentCausalGraph:
             depth_groups[depth].add(agent_id)
 
         return [depth_groups[d] for d in sorted(depth_groups.keys())]
+
+    def _compute_reachability(self, topo: list[str]) -> dict[str, set[str]]:
+        """Compute transitive closure (reachability) following topological order."""
+        reachable: dict[str, set[str]] = defaultdict(set)
+        for agent_id in reversed(topo):
+            for dep in self._adj.get(agent_id, set()):
+                reachable[agent_id].add(dep)
+                reachable[agent_id].update(reachable[dep])
+        return reachable
 
     def causal_distance(self, a: str, b: str) -> int:
         """
@@ -826,6 +841,49 @@ def build_causal_graph_from_branch(
     return graph
 
 
+def _add_conflict_resolution_edges(graph: AgentCausalGraph, agents: list[str]) -> None:
+    """Add conflict resolution synchronization edges between all agent pairs."""
+    for i in range(len(agents)):
+        for j in range(i + 1, len(agents)):
+            graph.add_causal_edge(
+                agents[i], agents[j],
+                CausalEdgeType.CONFLICT_RESOLVE.value,
+                f"conflict: {agents[i]} ↔ {agents[j]}",
+            )
+
+
+def _build_discussion_moderated(graph: AgentCausalGraph, discussion_id: str,
+                                 participants: list[str]) -> None:
+    """Build star topology: moderator controls all turns."""
+    moderator = participants[0]
+    graph.add_fork_edge(discussion_id, moderator)
+    for participant in participants[1:]:
+        graph.add_fork_edge(discussion_id, participant)
+        graph.add_causal_edge(
+            moderator, participant,
+            CausalEdgeType.CONTROL.value,
+            f"moderator grants turn to {participant}",
+        )
+        graph.add_causal_edge(
+            participant, moderator,
+            CausalEdgeType.SESSION_CHANNEL.value,
+            f"{participant} responds to moderator",
+        )
+
+
+def _build_discussion_round_robin(graph: AgentCausalGraph, discussion_id: str,
+                                    participants: list[str]) -> None:
+    """Build chain topology: each participant takes a turn after the previous."""
+    for i, participant in enumerate(participants):
+        graph.add_fork_edge(discussion_id, participant)
+        if i > 0:
+            graph.add_causal_edge(
+                participants[i - 1], participant,
+                CausalEdgeType.SESSION_CHANNEL.value,
+                f"turn: {participants[i-1]} → {participant}",
+            )
+
+
 def build_causal_graph_from_co_iterate(
     co_iterate_id: str,
     agents: list[str],
@@ -850,18 +908,9 @@ def build_causal_graph_from_co_iterate(
     for agent_id in agents:
         graph.add_fork_edge(co_iterate_id, agent_id)
 
-    # If shared state is "conflict", conflict resolution creates
-    # synchronization edges between agents at each round
     if shared_state == "conflict" and len(agents) > 1:
-        for i in range(len(agents)):
-            for j in range(i + 1, len(agents)):
-                graph.add_causal_edge(
-                    agents[i], agents[j],
-                    CausalEdgeType.CONFLICT_RESOLVE.value,
-                    f"conflict: {agents[i]} ↔ {agents[j]}",
-                )
+        _add_conflict_resolution_edges(graph, agents)
 
-    # All agents must complete before convergence check
     graph.add_merge_barrier(agents, co_iterate_id,
                             f"convergence_check: all → {co_iterate_id}")
 
@@ -884,33 +933,10 @@ def build_causal_graph_from_discussion(
     graph.add_agent(discussion_id)
 
     if turn_order == "moderated" and participants:
-        # Star topology: moderator controls all turns
-        moderator = participants[0]
-        graph.add_fork_edge(discussion_id, moderator)
-        for participant in participants[1:]:
-            graph.add_fork_edge(discussion_id, participant)
-            graph.add_causal_edge(
-                moderator, participant,
-                CausalEdgeType.CONTROL.value,
-                f"moderator grants turn to {participant}",
-            )
-            graph.add_causal_edge(
-                participant, moderator,
-                CausalEdgeType.SESSION_CHANNEL.value,
-                f"{participant} responds to moderator",
-            )
+        _build_discussion_moderated(graph, discussion_id, participants)
     elif turn_order == "round_robin":
-        # Chain topology: each participant takes a turn after the previous
-        for i, participant in enumerate(participants):
-            graph.add_fork_edge(discussion_id, participant)
-            if i > 0:
-                graph.add_causal_edge(
-                    participants[i - 1], participant,
-                    CausalEdgeType.SESSION_CHANNEL.value,
-                    f"turn: {participants[i-1]} → {participant}",
-                )
+        _build_discussion_round_robin(graph, discussion_id, participants)
 
-    # All participants must complete before discussion ends
     graph.add_merge_barrier(participants, discussion_id,
                             f"discussion_end: all → {discussion_id}")
 

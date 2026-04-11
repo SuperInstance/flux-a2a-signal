@@ -558,14 +558,8 @@ class FormatBridge:
         if len(bytecode) < HEADER_SIZE and self.emit_header:
             raise ValueError("Bytecode too short")
 
-        # Check for unified header
-        offset = 0
-        is_unified = False
-        if len(bytecode) >= 2 and bytecode[:2] == MAGIC_FLUX:
-            is_unified = True
-            offset = HEADER_SIZE
+        offset, is_unified = self._parse_bytecode_header(bytecode)
 
-        # Read first instruction
         if offset >= len(bytecode):
             raise ValueError("Bytecode has no instructions")
 
@@ -575,24 +569,38 @@ class FormatBridge:
         if not is_unified and opcode in A2A_OLD_TO_NEW:
             opcode = A2A_OLD_TO_NEW[opcode][0]
 
-        # Decode based on opcode
+        return self._decompile_by_opcode(opcode, bytecode, offset, is_unified)
+
+    @staticmethod
+    def _parse_bytecode_header(bytecode: bytes) -> tuple[int, bool]:
+        """Extract the header offset and unified flag from bytecode."""
+        offset = 0
+        is_unified = False
+        if len(bytecode) >= 2 and bytecode[:2] == MAGIC_FLUX:
+            is_unified = True
+            offset = HEADER_SIZE
+        return offset, is_unified
+
+    def _decompile_by_opcode(
+        self, opcode: int, bytecode: bytes, offset: int, is_unified: bool
+    ) -> dict[str, Any]:
+        """Dispatch bytecode to the appropriate decompiler based on opcode."""
         if opcode == UNIFIED_OPCODES["TELL"]:
             return self._decompile_tell(bytecode, offset, is_unified)
-        elif opcode == UNIFIED_OPCODES["ASK"]:
+        if opcode == UNIFIED_OPCODES["ASK"]:
             return self._decompile_ask(bytecode, offset, is_unified)
-        elif opcode == UNIFIED_OPCODES["OP_BRANCH"]:
+        if opcode == UNIFIED_OPCODES["OP_BRANCH"]:
             return self._decompile_branch(bytecode, offset, is_unified)
-        elif opcode == UNIFIED_OPCODES["DELEGATE"]:
+        if opcode == UNIFIED_OPCODES["DELEGATE"]:
             return self._decompile_fork(bytecode, offset, is_unified)
-        elif opcode == UNIFIED_OPCODES["OP_DISCUSS"]:
+        if opcode == UNIFIED_OPCODES["OP_DISCUSS"]:
             return self._decompile_discuss(bytecode, offset, is_unified)
-        else:
-            return {
-                "op": "raw",
-                "opcode": opcode,
-                "name": UNIFIED_BY_VALUE.get(opcode, "UNKNOWN"),
-                "bytes": bytecode[offset:].hex(),
-            }
+        return {
+            "op": "raw",
+            "opcode": opcode,
+            "name": UNIFIED_BY_VALUE.get(opcode, "UNKNOWN"),
+            "bytes": bytecode[offset:].hex(),
+        }
 
     def _decompile_tell(self, bytecode: bytes, offset: int, is_unified: bool) -> dict[str, Any]:
         """Decompile TELL instruction back to signal."""

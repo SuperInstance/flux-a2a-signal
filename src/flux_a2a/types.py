@@ -35,7 +35,7 @@ import math
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum, IntEnum
-from typing import Any, Dict, FrozenSet, List, Optional, Set, Tuple
+from typing import Any, Callable, Dict, FrozenSet, List, Optional, Set, Tuple
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -547,14 +547,7 @@ class FluxType:
             KeyError: If the lang/tag combination is unknown.
         """
         base = FluxBaseType.from_paradigm(lang, native_tag)
-        constraints = [
-            FluxConstraint(
-                kind=_infer_constraint_kind(lang, native_tag),
-                language=lang,
-                value=native_tag,
-                confidence=confidence,
-            )
-        ]
+        constraints = cls._build_paradigm_constraints(lang, native_tag, confidence)
         if extra_constraints:
             constraints.extend(extra_constraints)
 
@@ -565,6 +558,19 @@ class FluxType:
             paradigm_source=lang,
             name=name or f"{lang}:{native_tag}",
         )
+
+    @staticmethod
+    def _build_paradigm_constraints(lang: str, native_tag: str,
+                                     confidence: float) -> List[FluxConstraint]:
+        """Build the primary constraint list for a paradigm-sourced FluxType."""
+        return [
+            FluxConstraint(
+                kind=_infer_constraint_kind(lang, native_tag),
+                language=lang,
+                value=native_tag,
+                confidence=confidence,
+            )
+        ]
 
     @classmethod
     def uncertain(
@@ -779,71 +785,83 @@ class FluxTypeSignature:
 # 6. Internal helpers
 # ══════════════════════════════════════════════════════════════════
 
+def _infer_zho_constraint(native_tag: str) -> ConstraintKind:
+    """Infer constraint kind for Chinese classifier tags."""
+    if "flat" in native_tag or "long" in native_tag or "round" in native_tag:
+        return ConstraintKind.CLASSIFIER_SHAPE
+    if "person" in native_tag or "animal" in native_tag:
+        return ConstraintKind.CLASSIFIER_ANIMACY
+    if "collective" in native_tag or "pair" in native_tag or "volume" in native_tag:
+        return ConstraintKind.CLASSIFIER_COUNTABILITY
+    return ConstraintKind.CLASSIFIER_SHAPE
+
+
+def _infer_deu_constraint(native_tag: str) -> ConstraintKind:
+    """Infer constraint kind for German gender/case tags."""
+    if native_tag in ("nominativ", "akkusativ", "dativ", "genitiv"):
+        return ConstraintKind.CASE_MARKING
+    return ConstraintKind.GENDER_AGREEMENT
+
+
+def _infer_kor_constraint(native_tag: str) -> ConstraintKind:
+    """Infer constraint kind for Korean honorific tags."""
+    if "che" in native_tag or "honorific" in native_tag:
+        return ConstraintKind.HONORIFIC_LEVEL
+    if native_tag in ("declarative", "interrogative", "imperative", "propositive"):
+        return ConstraintKind.SPEECH_ACT
+    return ConstraintKind.HONORIFIC_LEVEL
+
+
+def _infer_san_constraint(native_tag: str) -> ConstraintKind:
+    """Infer constraint kind for Sanskrit vibhakti tags."""
+    if native_tag in ("prathama", "dvitiya", "tritiya", "chaturthi",
+                      "panchami", "shashthi", "saptami", "sambodhana"):
+        return ConstraintKind.SCOPE_LEVEL
+    if "linga" in native_tag:
+        return ConstraintKind.GENDER_AGREEMENT
+    if "vachana" in native_tag:
+        return ConstraintKind.NUMBER_AGREEMENT
+    return ConstraintKind.SCOPE_LEVEL
+
+
+def _infer_wen_constraint(native_tag: str) -> ConstraintKind:
+    """Infer constraint kind for Classical Chinese tags."""
+    if native_tag in ("attack", "defend", "advance", "retreat", "sequence", "loop"):
+        return ConstraintKind.EXECUTION_MODE
+    if native_tag in ("ren", "yi", "li", "zhi", "xin"):
+        return ConstraintKind.TRUST_REQUIREMENT
+    if native_tag in ("topic", "zero_anaphora", "context_resolved"):
+        return ConstraintKind.TOPIC_REGISTER
+    return ConstraintKind.CONTEXT_DOMAIN
+
+
+def _infer_lat_constraint(native_tag: str) -> ConstraintKind:
+    """Infer constraint kind for Latin tense/case tags."""
+    if native_tag in ("praesens", "imperfectum", "perfectum",
+                      "plusquamperfectum", "futurum", "futurum_exactum"):
+        return ConstraintKind.TEMPORAL_ASPECT
+    if "tius" in native_tag:
+        return ConstraintKind.CASE_MARKING
+    if native_tag in ("maskulinum", "femininum", "neutrum"):
+        return ConstraintKind.GENDER_AGREEMENT
+    return ConstraintKind.TEMPORAL_ASPECT
+
+
+_LANG_CONSTRAINT_INFERRERS: Dict[str, Callable[[str], ConstraintKind]] = {
+    "zho": _infer_zho_constraint,
+    "deu": _infer_deu_constraint,
+    "kor": _infer_kor_constraint,
+    "san": _infer_san_constraint,
+    "wen": _infer_wen_constraint,
+    "lat": _infer_lat_constraint,
+}
+
+
 def _infer_constraint_kind(lang: str, native_tag: str) -> ConstraintKind:
     """Infer the ConstraintKind from a language tag and native type name."""
-    # Classifier-related tags
-    if lang == "zho":
-        if "flat" in native_tag or "long" in native_tag or "round" in native_tag:
-            return ConstraintKind.CLASSIFIER_SHAPE
-        if "person" in native_tag or "animal" in native_tag:
-            return ConstraintKind.CLASSIFIER_ANIMACY
-        if "collective" in native_tag or "pair" in native_tag or "volume" in native_tag:
-            return ConstraintKind.CLASSIFIER_COUNTABILITY
-        if "indeterminate" in native_tag:
-            return ConstraintKind.CLASSIFIER_SHAPE
-        return ConstraintKind.CLASSIFIER_SHAPE
-
-    # Gender/case tags
-    if lang == "deu":
-        if native_tag in ("nominativ", "akkusativ", "dativ", "genitiv"):
-            return ConstraintKind.CASE_MARKING
-        if native_tag in ("maskulinum", "femininum", "neutrum"):
-            return ConstraintKind.GENDER_AGREEMENT
-        return ConstraintKind.GENDER_AGREEMENT
-
-    # Honorific tags
-    if lang == "kor":
-        if "che" in native_tag:
-            return ConstraintKind.HONORIFIC_LEVEL
-        if "honorific" in native_tag:
-            return ConstraintKind.HONORIFIC_LEVEL
-        if native_tag in ("declarative", "interrogative", "imperative", "propositive"):
-            return ConstraintKind.SPEECH_ACT
-        return ConstraintKind.HONORIFIC_LEVEL
-
-    # Sanskrit tags
-    if lang == "san":
-        if native_tag in ("prathama", "dvitiya", "tritiya", "chaturthi",
-                          "panchami", "shashthi", "saptami", "sambodhana"):
-            return ConstraintKind.SCOPE_LEVEL
-        if "linga" in native_tag:
-            return ConstraintKind.GENDER_AGREEMENT
-        if "vachana" in native_tag:
-            return ConstraintKind.NUMBER_AGREEMENT
-        return ConstraintKind.SCOPE_LEVEL
-
-    # Classical Chinese tags
-    if lang == "wen":
-        if native_tag in ("attack", "defend", "advance", "retreat",
-                          "sequence", "loop"):
-            return ConstraintKind.EXECUTION_MODE
-        if native_tag in ("ren", "yi", "li", "zhi", "xin"):
-            return ConstraintKind.TRUST_REQUIREMENT
-        if native_tag in ("topic", "zero_anaphora", "context_resolved"):
-            return ConstraintKind.TOPIC_REGISTER
-        return ConstraintKind.CONTEXT_DOMAIN
-
-    # Latin tags
-    if lang == "lat":
-        if native_tag in ("praesens", "imperfectum", "perfectum",
-                          "plusquamperfectum", "futurum", "futurum_exactum"):
-            return ConstraintKind.TEMPORAL_ASPECT
-        if "tius" in native_tag:
-            return ConstraintKind.CASE_MARKING
-        if native_tag in ("maskulinum", "femininum", "neutrum"):
-            return ConstraintKind.GENDER_AGREEMENT
-        return ConstraintKind.TEMPORAL_ASPECT
-
+    inferrer = _LANG_CONSTRAINT_INFERRERS.get(lang)
+    if inferrer is not None:
+        return inferrer(native_tag)
     return ConstraintKind.CONFIDENCE_BOUND
 
 

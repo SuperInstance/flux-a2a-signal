@@ -186,28 +186,32 @@ class BranchManager:
             return Result(value=None, confidence=0.0, source="merge", error=f"Unknown branch: {branch_id}")
 
         bp.status = "merging"
-
-        # Record all results
-        for label, result in branch_results:
-            branch_def = bp.get_branch(label)
-            weight = branch_def.weight if branch_def else 1.0
-            self.record_result(branch_id, label, result, weight)
+        self._record_branch_results(branch_id, branch_results, bp)
 
         results = self._results[branch_id]
         if not results:
             bp.status = "failed"
             return Result(value=None, confidence=0.0, source="merge", error="No results")
 
-        strategy = bp.merge_policy.strategy
-
-        # Apply merge strategy
-        merged = self._apply_strategy(strategy, results, bp)
+        merged = self._apply_strategy(bp.merge_policy.strategy, results, bp)
 
         bp.status = "completed"
         from datetime import datetime, timezone
         bp.completed_at = datetime.now(timezone.utc).isoformat()
 
         return merged
+
+    def _record_branch_results(
+        self,
+        branch_id: str,
+        branch_results: list[tuple[str, Result]],
+        bp: BranchPoint,
+    ) -> None:
+        """Record all branch results with their weights."""
+        for label, result in branch_results:
+            branch_def = bp.get_branch(label)
+            weight = branch_def.weight if branch_def else 1.0
+            self.record_result(branch_id, label, result, weight)
 
     def _apply_strategy(
         self,
@@ -216,97 +220,86 @@ class BranchManager:
         bp: BranchPoint,
     ) -> Result:
         """Apply a merge strategy to a list of branch results."""
+        _dispatch = {
+            MergePolicyType.LAST_WRITER_WINS.value: self._strategy_last_writer,
+            MergePolicyType.FIRST_COMPLETE.value: self._strategy_first_complete,
+            MergePolicyType.BEST_CONFIDENCE.value: self._strategy_best_confidence,
+            MergePolicyType.CONSENSUS.value: self._strategy_consensus,
+            MergePolicyType.WEIGHTED_CONFIDENCE.value: self._strategy_weighted_confidence,
+            MergePolicyType.VOTE.value: self._strategy_vote,
+        }
+        handler = _dispatch.get(strategy, self._strategy_last_writer)
+        return handler(results)
 
-        if strategy == MergePolicyType.LAST_WRITER_WINS.value:
-            last = results[-1]
+    # -- Strategy implementations ------------------------------------------
+
+    @staticmethod
+    def _strategy_last_writer(results: list[BranchResult]) -> Result:
+        last = results[-1]
+        return Result(
+            value=last.result.value, confidence=last.result.confidence,
+            source="merge:last_writer", children=[r.result for r in results],
+            meta={"winning_branch": last.label},
+        )
+
+    @staticmethod
+    def _strategy_first_complete(results: list[BranchResult]) -> Result:
+        first = results[0]
+        return Result(
+            value=first.result.value, confidence=first.result.confidence,
+            source="merge:first_complete", children=[r.result for r in results],
+            meta={"winning_branch": first.label},
+        )
+
+    @staticmethod
+    def _strategy_best_confidence(results: list[BranchResult]) -> Result:
+        best = max(results, key=lambda r: r.result.confidence)
+        return Result(
+            value=best.result.value, confidence=best.result.confidence,
+            source="merge:best_confidence", children=[r.result for r in results],
+            meta={"winning_branch": best.label, "best_confidence": best.result.confidence},
+        )
+
+    @staticmethod
+    def _strategy_consensus(results: list[BranchResult]) -> Result:
+        values = [r.result.value for r in results]
+        if all(v == values[0] for v in values):
+            min_conf = min(r.result.confidence for r in results)
             return Result(
-                value=last.result.value,
-                confidence=last.result.confidence,
-                source="merge:last_writer",
-                children=[r.result for r in results],
-                meta={"winning_branch": last.label},
+                value=values[0], confidence=min_conf,
+                source="merge:consensus", children=[r.result for r in results],
+                meta={"agreement": True},
             )
+        return Result(
+            value=values, confidence=0.5,
+            source="merge:consensus:disagree", children=[r.result for r in results],
+            meta={"agreement": False},
+        )
 
-        elif strategy == MergePolicyType.FIRST_COMPLETE.value:
-            first = results[0]
-            return Result(
-                value=first.result.value,
-                confidence=first.result.confidence,
-                source="merge:first_complete",
-                children=[r.result for r in results],
-                meta={"winning_branch": first.label},
-            )
+    @staticmethod
+    def _strategy_weighted_confidence(results: list[BranchResult]) -> Result:
+        total_weight = sum(r.weight for r in results) or len(results)
+        weighted_conf = sum(r.weight * r.result.confidence for r in results) / total_weight
+        return Result(
+            value=results[0].result.value, confidence=weighted_conf,
+            source="merge:weighted_confidence", children=[r.result for r in results],
+            meta={
+                "weighted_confidence": weighted_conf,
+                "branches": [(r.label, r.weight) for r in results],
+            },
+        )
 
-        elif strategy == MergePolicyType.BEST_CONFIDENCE.value:
-            best = max(results, key=lambda r: r.result.confidence)
-            return Result(
-                value=best.result.value,
-                confidence=best.result.confidence,
-                source="merge:best_confidence",
-                children=[r.result for r in results],
-                meta={"winning_branch": best.label, "best_confidence": best.result.confidence},
-            )
-
-        elif strategy == MergePolicyType.CONSENSUS.value:
-            values = [r.result.value for r in results]
-            # Check if all values agree
-            if all(v == values[0] for v in values):
-                min_conf = min(r.result.confidence for r in results)
-                return Result(
-                    value=values[0],
-                    confidence=min_conf,
-                    source="merge:consensus",
-                    children=[r.result for r in results],
-                    meta={"agreement": True},
-                )
-            else:
-                # Disagreement — return all values
-                return Result(
-                    value=values,
-                    confidence=0.5,
-                    source="merge:consensus:disagree",
-                    children=[r.result for r in results],
-                    meta={"agreement": False},
-                )
-
-        elif strategy == MergePolicyType.WEIGHTED_CONFIDENCE.value:
-            total_weight = sum(r.weight for r in results)
-            if total_weight == 0:
-                total_weight = len(results)
-            weighted_conf = sum(r.weight * r.result.confidence for r in results) / total_weight
-            return Result(
-                value=results[0].result.value,  # Representative value
-                confidence=weighted_conf,
-                source="merge:weighted_confidence",
-                children=[r.result for r in results],
-                meta={
-                    "weighted_confidence": weighted_conf,
-                    "branches": [(r.label, r.weight) for r in results],
-                },
-            )
-
-        elif strategy == MergePolicyType.VOTE.value:
-            from collections import Counter
-            values = [r.result.value for r in results]
-            counts = Counter(values)
-            winner, count = counts.most_common(1)[0]
-            return Result(
-                value=winner,
-                confidence=count / len(values),
-                source="merge:vote",
-                children=[r.result for r in results],
-                meta={"winner": winner, "votes": count, "total": len(values)},
-            )
-
-        else:
-            # Default: last writer wins
-            last = results[-1]
-            return Result(
-                value=last.result.value,
-                confidence=last.result.confidence,
-                source="merge:default",
-                children=[r.result for r in results],
-            )
+    @staticmethod
+    def _strategy_vote(results: list[BranchResult]) -> Result:
+        from collections import Counter
+        values = [r.result.value for r in results]
+        counts = Counter(values)
+        winner, count = counts.most_common(1)[0]
+        return Result(
+            value=winner, confidence=count / len(values),
+            source="merge:vote", children=[r.result for r in results],
+            meta={"winner": winner, "votes": count, "total": len(values)},
+        )
 
     def get_all_results(self, branch_id: str) -> list[BranchResult]:
         """Get all results for a branch point."""
