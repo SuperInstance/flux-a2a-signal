@@ -281,17 +281,10 @@ class TranslationRuleSet:
         """Iterate over all registered rules."""
         return iter(self._rules)
 
-    @classmethod
-    def standard(cls) -> TranslationRuleSet:
-        """Build the standard rule set with all paradigm-pair rules.
-
-        The rules are data-driven — they encode linguistic correspondences
-        that guide type-level translation.  Each rule maps a source
-        paradigm construct to a target paradigm construct.
-        """
-        rs = cls()
-
-        # ── ZHO ↔ DEU (classifier ↔ case/gender) ────────────────
+    @staticmethod
+    def _add_zho_deu_rules(rs: TranslationRuleSet) -> None:
+        """Add ZHO ↔ DEU translation rules (classifier ↔ case/gender)."""
+        # ── ZHO → DEU (classifier → gender/plural) ────────────────
 
         # ZHO classifiers → DEU gender + plural
         rs.add(TranslationRule(
@@ -396,7 +389,7 @@ class TranslationRuleSet:
             notes="ZHO spatial extent (段) → DEU Akkusativ (object scope)",
         ))
 
-        # ── DEU ↔ ZHO (reverse) ──────────────────────────────────
+        # ── DEU → ZHO (reverse) ──────────────────────────────────
         rs.add(TranslationRule(
             rule_id="deu_zho_mask_person",
             from_lang="deu", to_lang="zho",
@@ -445,7 +438,10 @@ class TranslationRuleSet:
             notes="DEU Akkusativ → ZHO spatial extent scope (段)",
         ))
 
-        # ── DEU ↔ KOR (case ↔ honorific/particles) ──────────────
+    @staticmethod
+    def _add_deu_kor_rules(rs: TranslationRuleSet) -> None:
+        """Add DEU ↔ KOR translation rules (case ↔ honorific/particles)."""
+        # ── DEU → KOR (case → honorific/particles) ──────────────
 
         # DEU Kasus → KOR particles
         rs.add(TranslationRule(
@@ -514,7 +510,7 @@ class TranslationRuleSet:
             notes="DEU Neutrum → KOR haeche (informal, value/data)",
         ))
 
-        # ── KOR ↔ DEU (reverse) ──────────────────────────────────
+        # ── KOR → DEU (reverse) ──────────────────────────────────
         rs.add(TranslationRule(
             rule_id="kor_deu_subj_nom",
             from_lang="kor", to_lang="deu",
@@ -561,7 +557,10 @@ class TranslationRuleSet:
             notes="KOR haeche → DEU Neutrum (informal → value)",
         ))
 
-        # ── ZHO ↔ KOR (classifier ↔ particles) ──────────────────
+    @staticmethod
+    def _add_zho_kor_rules(rs: TranslationRuleSet) -> None:
+        """Add ZHO ↔ KOR translation rules (classifier ↔ particles)."""
+        # ── ZHO → KOR (classifier → particles) ──────────────────
 
         # ZHO 量词系统 → KOR 助词系统
         rs.add(TranslationRule(
@@ -612,7 +611,7 @@ class TranslationRuleSet:
             notes="ZHO generic classifier → KOR polite (topic marker 은/는)",
         ))
 
-        # ── KOR ↔ ZHO (reverse) ──────────────────────────────────
+        # ── KOR → ZHO (reverse) ──────────────────────────────────
         rs.add(TranslationRule(
             rule_id="kor_zho_subj_person",
             from_lang="kor", to_lang="zho",
@@ -650,6 +649,18 @@ class TranslationRuleSet:
             notes="KOR plain → ZHO flat object classifier (張)",
         ))
 
+    @classmethod
+    def standard(cls) -> TranslationRuleSet:
+        """Build the standard rule set with all paradigm-pair rules.
+
+        The rules are data-driven — they encode linguistic correspondences
+        that guide type-level translation.  Each rule maps a source
+        paradigm construct to a target paradigm construct.
+        """
+        rs = cls()
+        cls._add_zho_deu_rules(rs)
+        cls._add_deu_kor_rules(rs)
+        cls._add_zho_kor_rules(rs)
         return rs
 
 
@@ -691,6 +702,30 @@ class ASTDiffEngine:
             match_scores.append(pair_score)
 
         # Extra types in either list are full losses
+        ASTDiffEngine._handle_extra_types(
+            source_types, target_types, details, match_scores
+        )
+
+        overall_score = (
+            sum(match_scores) / len(match_scores) if match_scores else 1.0
+        )
+
+        return ASTDiff(
+            source_lang=source_lang,
+            target_lang=target_lang,
+            diff_count=sum(1 for d in details if d["kind"] != ASTDiffKind.STRUCTURAL_PRESERVED.value),
+            match_score=overall_score,
+            details=details,
+        )
+
+    @staticmethod
+    def _handle_extra_types(
+        source_types: list[FluxType],
+        target_types: list[FluxType],
+        details: list[dict[str, Any]],
+        match_scores: list[float],
+    ) -> None:
+        """Record details for types that exist in only one list."""
         if len(source_types) > len(target_types):
             for i in range(len(target_types), len(source_types)):
                 details.append({
@@ -710,18 +745,6 @@ class ASTDiffEngine:
                 })
                 match_scores.append(0.5)
 
-        overall_score = (
-            sum(match_scores) / len(match_scores) if match_scores else 1.0
-        )
-
-        return ASTDiff(
-            source_lang=source_lang,
-            target_lang=target_lang,
-            diff_count=sum(1 for d in details if d["kind"] != ASTDiffKind.STRUCTURAL_PRESERVED.value),
-            match_score=overall_score,
-            details=details,
-        )
-
     @staticmethod
     def _compare_pair(
         src: FluxType, tgt: FluxType, index: int, details: list[dict[str, Any]]
@@ -739,6 +762,37 @@ class ASTDiffEngine:
             })
 
         # Base type comparison
+        score = ASTDiffEngine._compare_pair_base_type(
+            src, tgt, index, details, score
+        )
+
+        # Constraint comparison
+        score = ASTDiffEngine._compare_pair_constraints(
+            src, tgt, index, details, score
+        )
+
+        # Confidence change
+        conf_diff = abs(src.confidence - tgt.confidence)
+        if conf_diff > 0.01:
+            score -= conf_diff * 0.2
+            details.append({
+                "index": index,
+                "kind": ASTDiffKind.CONFIDENCE_CHANGED.value,
+                "detail": (
+                    f"Confidence: {src.confidence:.3f} → {tgt.confidence:.3f} "
+                    f"(Δ={conf_diff:.3f})"
+                ),
+                "severity": conf_diff,
+            })
+
+        return max(0.0, min(1.0, score))
+
+    @staticmethod
+    def _compare_pair_base_type(
+        src: FluxType, tgt: FluxType, index: int,
+        details: list[dict[str, Any]], score: float,
+    ) -> float:
+        """Compare base types between a pair and update score/details."""
         if src.base_type != tgt.base_type:
             dist = src.base_type.spectrum_distance(tgt.base_type)
             penalty = min(dist / 7.0, 1.0)
@@ -759,8 +813,14 @@ class ASTDiffEngine:
                 "detail": f"Base type preserved: {src.base_type.name}",
                 "severity": 0.0,
             })
+        return score
 
-        # Constraint comparison
+    @staticmethod
+    def _compare_pair_constraints(
+        src: FluxType, tgt: FluxType, index: int,
+        details: list[dict[str, Any]], score: float,
+    ) -> float:
+        """Compare constraints between a pair and update score/details."""
         src_kinds = {(c.kind, c.value) for c in src.constraints if c.language == src.paradigm_source}
         tgt_kinds = {(c.kind, c.value) for c in tgt.constraints if c.language == tgt.paradigm_source}
 
@@ -786,21 +846,7 @@ class ASTDiffEngine:
                     "severity": 0.1,
                 })
 
-        # Confidence change
-        conf_diff = abs(src.confidence - tgt.confidence)
-        if conf_diff > 0.01:
-            score -= conf_diff * 0.2
-            details.append({
-                "index": index,
-                "kind": ASTDiffKind.CONFIDENCE_CHANGED.value,
-                "detail": (
-                    f"Confidence: {src.confidence:.3f} → {tgt.confidence:.3f} "
-                    f"(Δ={conf_diff:.3f})"
-                ),
-                "severity": conf_diff,
-            })
-
-        return max(0.0, min(1.0, score))
+        return score
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -979,6 +1025,29 @@ class SemanticEquivalenceChecker:
         score = 1.0
 
         # Base type alignment
+        score, divs = self._check_base_type_alignment(src, tgt, index, score)
+        divergences.extend(divs)
+
+        # Constraint overlap
+        score, divs = self._check_constraint_overlap(src, tgt, index, score)
+        divergences.extend(divs)
+
+        # Confidence preservation
+        conf_diff = abs(src.confidence - tgt.confidence)
+        if conf_diff > 0.2:
+            score -= conf_diff * 0.2
+            divergences.append(
+                f"Type[{index}]: confidence gap ({src.confidence:.2f} → "
+                f"{tgt.confidence:.2f}, Δ={conf_diff:.2f})"
+            )
+
+        return max(0.0, min(1.0, score)), divergences
+
+    def _check_base_type_alignment(
+        self, src: FluxType, tgt: FluxType, index: int, score: float
+    ) -> tuple[float, list[str]]:
+        """Check base type alignment and return updated score + divergences."""
+        divergences: list[str] = []
         dist = src.effective_base_type().spectrum_distance(tgt.effective_base_type())
         if dist > 0:
             penalty = dist / 7.0
@@ -988,8 +1057,13 @@ class SemanticEquivalenceChecker:
                     f"Type[{index}]: significant base type shift "
                     f"({src.base_type.name} → {tgt.base_type.name}, dist={dist})"
                 )
+        return score, divergences
 
-        # Constraint overlap
+    def _check_constraint_overlap(
+        self, src: FluxType, tgt: FluxType, index: int, score: float
+    ) -> tuple[float, list[str]]:
+        """Check constraint kind overlap and return updated score + divergences."""
+        divergences: list[str] = []
         src_constraints = set(
             (c.kind.value, c.value) for c in src.constraints
         )
@@ -1008,16 +1082,7 @@ class SemanticEquivalenceChecker:
                 f"Type[{index}]: constraint kinds lost: {lost_kinds}"
             )
 
-        # Confidence preservation
-        conf_diff = abs(src.confidence - tgt.confidence)
-        if conf_diff > 0.2:
-            score -= conf_diff * 0.2
-            divergences.append(
-                f"Type[{index}]: confidence gap ({src.confidence:.2f} → "
-                f"{tgt.confidence:.2f}, Δ={conf_diff:.2f})"
-            )
-
-        return max(0.0, min(1.0, score)), divergences
+        return score, divergences
 
     def _property_test(
         self,
@@ -1082,32 +1147,10 @@ class SemanticEquivalenceChecker:
 
         for i, (src, tgt) in enumerate(zip(source_types, target_types)):
             total += 1
-            pair_score = 1.0
-
-            # Arithmetic should stay in VALUE base type
-            if src.base_type == FluxBaseType.VALUE:
-                if tgt.base_type != FluxBaseType.VALUE:
-                    pair_score -= 0.4
-                    divergences.append(
-                        f"Arithmetic[{i}]: base type changed from VALUE to "
-                        f"{tgt.base_type.name}"
-                    )
-
-            # No modal/capability leakage
-            for c in tgt.constraints:
-                if c.kind in (ConstraintKind.EXECUTION_MODE,
-                              ConstraintKind.HONORIFIC_LEVEL):
-                    pair_score -= 0.2
-                    divergences.append(
-                        f"Arithmetic[{i}]: unexpected constraint "
-                        f"{c.kind.value}={c.value}"
-                    )
-
-            # Confidence check
-            if tgt.confidence >= 0.5:
-                passed += 1
-
-            scores.append(max(0.0, min(1.0, pair_score)))
+            pair_score, pair_divs, pair_passed = self._check_arithmetic_pair(src, tgt, i)
+            passed += pair_passed
+            divergences.extend(pair_divs)
+            scores.append(pair_score)
 
         overall = sum(scores) / len(scores) if scores else 0.0
 
@@ -1118,6 +1161,42 @@ class SemanticEquivalenceChecker:
             test_cases_passed=passed,
             test_cases_total=total,
         )
+
+    def _check_arithmetic_pair(
+        self, src: FluxType, tgt: FluxType, index: int
+    ) -> tuple[float, list[str], int]:
+        """Check a single pair for arithmetic preservation.
+
+        Returns (pair_score, divergences, passed_count).
+        """
+        divergences: list[str] = []
+        pair_score = 1.0
+        passed = 0
+
+        # Arithmetic should stay in VALUE base type
+        if src.base_type == FluxBaseType.VALUE:
+            if tgt.base_type != FluxBaseType.VALUE:
+                pair_score -= 0.4
+                divergences.append(
+                    f"Arithmetic[{index}]: base type changed from VALUE to "
+                    f"{tgt.base_type.name}"
+                )
+
+        # No modal/capability leakage
+        for c in tgt.constraints:
+            if c.kind in (ConstraintKind.EXECUTION_MODE,
+                          ConstraintKind.HONORIFIC_LEVEL):
+                pair_score -= 0.2
+                divergences.append(
+                    f"Arithmetic[{index}]: unexpected constraint "
+                    f"{c.kind.value}={c.value}"
+                )
+
+        # Confidence check
+        if tgt.confidence >= 0.5:
+            passed += 1
+
+        return max(0.0, min(1.0, pair_score)), divergences, passed
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -1176,6 +1255,25 @@ class MultiHopCompiler:
             return [from_lang]
 
         # Dijkstra
+        dist, prev = self._run_dijkstra(from_lang, to_lang)
+
+        # Reconstruct path
+        if dist[to_lang] == float("inf"):
+            return [from_lang, to_lang]  # Fallback: direct
+
+        path = self._reconstruct_path(prev, to_lang)
+
+        # Limit hops
+        if len(path) > self.MAX_HOPS + 1:
+            # Fall back to direct
+            return [from_lang, to_lang]
+
+        return path
+
+    def _run_dijkstra(
+        self, from_lang: LangTag, to_lang: LangTag
+    ) -> tuple[dict[LangTag, float], dict[LangTag, Optional[LangTag]]]:
+        """Run Dijkstra's algorithm from from_lang, stopping early if to_lang is reached."""
         dist: dict[LangTag, float] = {lang: float("inf") for lang in SUPPORTED_LANGUAGES}
         prev: dict[LangTag, Optional[LangTag]] = {lang: None for lang in SUPPORTED_LANGUAGES}
         dist[from_lang] = 0.0
@@ -1205,22 +1303,19 @@ class MultiHopCompiler:
                     prev[neighbor] = current
                     heapq.heappush(pq, (new_cost, neighbor))
 
-        # Reconstruct path
-        if dist[to_lang] == float("inf"):
-            return [from_lang, to_lang]  # Fallback: direct
+        return dist, prev
 
+    @staticmethod
+    def _reconstruct_path(
+        prev: dict[LangTag, Optional[LangTag]], to_lang: LangTag
+    ) -> list[LangTag]:
+        """Reconstruct the shortest path from Dijkstra predecessor map."""
         path: list[LangTag] = []
         current: Optional[LangTag] = to_lang
         while current is not None:
             path.append(current)
             current = prev[current]
         path.reverse()
-
-        # Limit hops
-        if len(path) > self.MAX_HOPS + 1:
-            # Fall back to direct
-            return [from_lang, to_lang]
-
         return path
 
     def compile_hops(
@@ -1246,6 +1341,39 @@ class MultiHopCompiler:
                 information_preserved=1.0,
             )
 
+        all_witnesses, all_warnings, total_cost, current_types = self._execute_hops(
+            source_types, path
+        )
+
+        # Compute information preservation
+        info_preserved = MultiHopCompiler._compute_information_preserved(
+            source_types, current_types, total_cost
+        )
+
+        # AST diff
+        ast_diff = ASTDiffEngine.compare(
+            source_types, current_types,
+            path[0], path[-1],
+        )
+
+        return CompilationResult(
+            target_code=CodeEmitter.emit_program(current_types, path[-1]),
+            witness_chain=all_witnesses,
+            total_cost=total_cost,
+            information_preserved=info_preserved,
+            warnings=all_warnings,
+            ast_diff=ast_diff,
+            source_types=source_types,
+            target_types=current_types,
+            route=path,
+        )
+
+    def _execute_hops(
+        self,
+        source_types: list[FluxType],
+        path: list[LangTag],
+    ) -> tuple[list[TypeWitness], list[str], float, list[FluxType]]:
+        """Execute all hops in the path, returning accumulated results."""
         all_witnesses: list[TypeWitness] = []
         all_warnings: list[str] = []
         total_cost = 0.0
@@ -1271,28 +1399,7 @@ class MultiHopCompiler:
             all_witnesses.extend(hop_witnesses)
             current_types = hop_types
 
-        # Compute information preservation
-        info_preserved = MultiHopCompiler._compute_information_preserved(
-            source_types, current_types, total_cost
-        )
-
-        # AST diff
-        ast_diff = ASTDiffEngine.compare(
-            source_types, current_types,
-            path[0], path[-1],
-        )
-
-        return CompilationResult(
-            target_code=CodeEmitter.emit_program(current_types, path[-1]),
-            witness_chain=all_witnesses,
-            total_cost=total_cost,
-            information_preserved=info_preserved,
-            warnings=all_warnings,
-            ast_diff=ast_diff,
-            source_types=source_types,
-            target_types=current_types,
-            route=path,
-        )
+        return all_witnesses, all_warnings, total_cost, current_types
 
     def is_multi_hop_cheaper(
         self, from_lang: LangTag, to_lang: LangTag
@@ -1465,20 +1572,38 @@ class CrossCompiler:
             )
 
         # Decide routing strategy
-        if use_multi_hop and len(source_types) > 0:
-            is_cheaper, path, savings = self.multi_hop.is_multi_hop_cheaper(
-                from_lang, to_lang
-            )
-            if is_cheaper and len(path) > 2:
-                result = self.multi_hop.compile_hops(source_types, path)
-                result.warnings.append(
-                    f"Used multi-hop path {' → '.join(path)} "
-                    f"(saved {savings:.4f} cost vs direct)"
-                )
-                return result
+        multi_result = self._try_multi_hop_route(
+            source_types, from_lang, to_lang, use_multi_hop
+        )
+        if multi_result is not None:
+            return multi_result
 
         # Direct compilation
         return self._compile_direct(source_types, from_lang, to_lang)
+
+    def _try_multi_hop_route(
+        self,
+        source_types: list[FluxType],
+        from_lang: LangTag,
+        to_lang: LangTag,
+        use_multi_hop: bool,
+    ) -> Optional[CompilationResult]:
+        """Try multi-hop routing; return result if cheaper, else None."""
+        if not use_multi_hop or len(source_types) == 0:
+            return None
+
+        is_cheaper, path, savings = self.multi_hop.is_multi_hop_cheaper(
+            from_lang, to_lang
+        )
+        if is_cheaper and len(path) > 2:
+            result = self.multi_hop.compile_hops(source_types, path)
+            result.warnings.append(
+                f"Used multi-hop path {' → '.join(path)} "
+                f"(saved {savings:.4f} cost vs direct)"
+            )
+            return result
+
+        return None
 
     def compile_round_trip(
         self,
@@ -1574,44 +1699,70 @@ class CrossCompiler:
         warnings: list[str] = []
 
         for src_type in source_types:
-            # Apply translation rule if available (data-driven)
-            src_tag = self._infer_tag(src_type)
-            rule = self.rule_set.match(from_lang, to_lang, src_tag) if src_tag else None
-
-            if rule and rule.target_pattern in _PARADIGM_TO_BASE.get(to_lang, {}):
-                # Use rule-based translation
-                try:
-                    target_type = FluxType.from_paradigm(
-                        to_lang,
-                        rule.target_pattern,
-                        confidence=src_type.confidence * rule.confidence_factor,
-                        name=f"{to_lang}:{rule.target_pattern}",
-                    )
-                except KeyError:
-                    # Rule target not valid, fall back to bridge
-                    result = self.safe_bridge.translate_safe(src_type, to_lang)
-                    target_type = result.target_type
-                    witnesses.append(result.witness)
-                    warnings.extend(result.warnings)
-                    target_types.append(target_type)
-                    continue
-            else:
-                # Use TypeSafeBridge for translation
-                result = self.safe_bridge.translate_safe(src_type, to_lang)
-                target_type = result.target_type
-                witnesses.append(result.witness)
-                warnings.extend(result.warnings)
-
-            # Generate witness for rule-based translation
-            if rule:
-                # Build a witness manually for the rule-based translation
-                witness = self._build_rule_witness(
-                    src_type, target_type, from_lang, to_lang, rule
-                )
+            target_type, witness, type_warnings = self._translate_single_type(
+                src_type, from_lang, to_lang
+            )
+            if witness is not None:
                 witnesses.append(witness)
-
+            warnings.extend(type_warnings)
             target_types.append(target_type)
 
+        return self._build_compilation_result(
+            source_types, target_types, witnesses, warnings, from_lang, to_lang
+        )
+
+    def _translate_single_type(
+        self,
+        src_type: FluxType,
+        from_lang: LangTag,
+        to_lang: LangTag,
+    ) -> tuple[FluxType, Optional[TypeWitness], list[str]]:
+        """Translate a single FluxType, using rules if available.
+
+        Returns (target_type, optional_witness, warnings_list).
+        """
+        src_tag = self._infer_tag(src_type)
+        rule = self.rule_set.match(from_lang, to_lang, src_tag) if src_tag else None
+        witness: Optional[TypeWitness] = None
+        warnings: list[str] = []
+
+        if rule and rule.target_pattern in _PARADIGM_TO_BASE.get(to_lang, {}):
+            # Use rule-based translation
+            try:
+                target_type = FluxType.from_paradigm(
+                    to_lang,
+                    rule.target_pattern,
+                    confidence=src_type.confidence * rule.confidence_factor,
+                    name=f"{to_lang}:{rule.target_pattern}",
+                )
+            except KeyError:
+                # Rule target not valid, fall back to bridge
+                result = self.safe_bridge.translate_safe(src_type, to_lang)
+                return result.target_type, result.witness, list(result.warnings)
+
+            # Generate witness for rule-based translation
+            witness = self._build_rule_witness(
+                src_type, target_type, from_lang, to_lang, rule
+            )
+        else:
+            # Use TypeSafeBridge for translation
+            result = self.safe_bridge.translate_safe(src_type, to_lang)
+            target_type = result.target_type
+            witness = result.witness
+            warnings.extend(result.warnings)
+
+        return target_type, witness, warnings
+
+    def _build_compilation_result(
+        self,
+        source_types: list[FluxType],
+        target_types: list[FluxType],
+        witnesses: list[TypeWitness],
+        warnings: list[str],
+        from_lang: LangTag,
+        to_lang: LangTag,
+    ) -> CompilationResult:
+        """Build a CompilationResult from translation outputs."""
         # Compute costs
         cost_report = self.cost_matrix.compute(from_lang, to_lang)
         total_cost = cost_report.total_cost
@@ -1650,6 +1801,36 @@ class CrossCompiler:
         rule: TranslationRule,
     ) -> TypeWitness:
         """Build a TypeWitness for a rule-based translation."""
+        constraints = self._build_rule_constraints(
+            source_type, target_type, from_lang, to_lang, rule
+        )
+
+        # Determine preservation from confidence factor
+        preservation = self._preservation_from_factor(rule.confidence_factor)
+
+        witness = TypeWitness(
+            source_lang=from_lang,
+            source_tag=rule.source_pattern,
+            target_lang=to_lang,
+            target_tag=rule.target_pattern,
+            source_type=source_type,
+            target_type=target_type,
+            strategy=f"rule:{rule.rule_id}",
+            preservation=preservation,
+            constraints=constraints,
+        )
+        witness.verify()
+        return witness
+
+    def _build_rule_constraints(
+        self,
+        source_type: FluxType,
+        target_type: FluxType,
+        from_lang: LangTag,
+        to_lang: LangTag,
+        rule: TranslationRule,
+    ) -> list[WitnessConstraint]:
+        """Build witness constraints for a rule-based translation."""
         constraints: list[WitnessConstraint] = []
 
         # C1: Rule was applied
@@ -1693,27 +1874,17 @@ class CrossCompiler:
             satisfied=True,
         ))
 
-        # Determine preservation from confidence factor
-        if rule.confidence_factor >= 0.85:
-            preservation = PreservationDegree.NEAR_LOSSLESS
-        elif rule.confidence_factor >= 0.65:
-            preservation = PreservationDegree.PARTIAL
-        else:
-            preservation = PreservationDegree.LOSSY
+        return constraints
 
-        witness = TypeWitness(
-            source_lang=from_lang,
-            source_tag=rule.source_pattern,
-            target_lang=to_lang,
-            target_tag=rule.target_pattern,
-            source_type=source_type,
-            target_type=target_type,
-            strategy=f"rule:{rule.rule_id}",
-            preservation=preservation,
-            constraints=constraints,
-        )
-        witness.verify()
-        return witness
+    @staticmethod
+    def _preservation_from_factor(confidence_factor: float) -> PreservationDegree:
+        """Determine preservation degree from a rule's confidence factor."""
+        if confidence_factor >= 0.85:
+            return PreservationDegree.NEAR_LOSSLESS
+        elif confidence_factor >= 0.65:
+            return PreservationDegree.PARTIAL
+        else:
+            return PreservationDegree.LOSSY
 
     @staticmethod
     def _infer_tag(flux_type: FluxType) -> Optional[NativeTag]:

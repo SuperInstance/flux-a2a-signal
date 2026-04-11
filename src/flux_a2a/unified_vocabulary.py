@@ -158,19 +158,1090 @@ from pathlib import Path as _Path
 _ONTOLOGY_PATH = _Path(__file__).parent / "ontology_data.json"
 
 
+
+def _build_execution_concepts(concepts: Dict[str, ConceptNode]) -> None:
+    """Populate execution domain concepts."""
+
+    concepts["agent_action"] = ConceptNode(
+        concept_id="agent_action",
+        universal_name="Agent",
+        description="An autonomous entity that can initiate actions and make decisions",
+        semantic_domain="execution",
+        children=["function", "application"],
+        language_terms={
+            "zho": ["执行者", "代理"],
+            "deu": ["Agent", "Akteur"],
+            "kor": ["실행자", "에이전트"],
+            "san": ["kartā", "kāraka"],
+            "lat": ["Actor", "Agens"],
+            "wen": ["執行者", "使"],
+        },
+        paradigm_traits={
+            "zho": {"morphology": "compound", "character_count": 3},
+            "san": {"morphology": "verbal_noun", "grammar": "kṛt_affix"},
+            "wen": {"morphology": "single_char", "compactness": "maximal"},
+        },
+    )
+
+    concepts["function"] = ConceptNode(
+        concept_id="function",
+        universal_name="Function",
+        description="A reusable computation that maps inputs to outputs",
+        semantic_domain="execution",
+        children=["abstraction", "conditional", "map", "filter", "reduce"],
+        parent="agent_action",
+        language_terms={
+            "zho": ["函数", "功能"],
+            "deu": ["Funktion"],
+            "kor": ["함수"],
+            "san": ["upakāra", "kārya"],
+            "lat": ["Functio", "Ratio"],
+            "wen": ["用", "功"],
+        },
+        paradigm_traits={
+            "deu": {"morphology": "compound_root", "gender": "femininum"},
+            "san": {"morphology": "compounding", "components": "upa+kāra"},
+            "wen": {"morphology": "single_char", "ambiguity": "high"},
+        },
+    )
+
+    concepts["application"] = ConceptNode(
+        concept_id="application",
+        universal_name="Application",
+        description="Applying a function to arguments, producing a result",
+        semantic_domain="execution",
+        children=["pipeline", "chain"],
+        parent="agent_action",
+        language_terms={
+            "zho": ["应用", "适用"],
+            "deu": ["Anwendung", "Applikation"],
+            "kor": ["적용"],
+            "san": ["prayoga"],
+            "lat": ["Applicatio"],
+            "wen": ["行", "施"],
+        },
+        paradigm_traits={
+            "zho": {"morphology": "compound", "polysemy": "true"},
+            "san": {"morphology": "verbal_noun", "grammar": "pra+yuj"},
+            "wen": {"morphology": "single_char", "context_dependent": "true"},
+        },
+    )
+
+    concepts["abstraction"] = ConceptNode(
+        concept_id="abstraction",
+        universal_name="Abstraction",
+        description="Generalizing a computation by parameterizing over values",
+        semantic_domain="execution",
+        parent="function",
+        language_terms={
+            "zho": ["抽象"],
+            "deu": ["Abstraktion"],
+            "kor": ["추상화"],
+            "san": ["apahāra", "nirvacana"],
+            "lat": ["Abstractio"],
+            "wen": ["隱", "約"],
+        },
+        paradigm_traits={
+            "zho": {"morphology": "compound", "character_count": 2},
+            "san": {"morphology": "compounding", "philosophy": "nyaya_school"},
+            "wen": {"morphology": "single_char", "meaning": "conceal_extract"},
+        },
+    )
+
+    concepts["conditional"] = ConceptNode(
+        concept_id="conditional",
+        universal_name="Conditional",
+        description="Branching execution based on a boolean predicate",
+        semantic_domain="execution",
+        parent="function",
+        language_terms={
+            "zho": ["条件"],
+            "deu": ["Bedingung"],
+            "kor": ["조건"],
+            "san": ["paryeṣa", "vicāra"],
+            "lat": ["Condicio", "Si"],
+            "wen": ["然", "若"],
+        },
+        paradigm_traits={
+            "zho": {"morphology": "compound", "logic": "classical_chinese_condition"},
+            "wen": {"morphology": "single_char", "grammar": "conditional_particle"},
+            "san": {"morphology": "compounding", "usage": "logical_inquiry"},
+        },
+    )
+
+    concepts["loop"] = ConceptNode(
+        concept_id="loop",
+        universal_name="Loop",
+        description="Repeated execution of a computation while a condition holds",
+        semantic_domain="execution",
+        children=["sequence", "parallel"],
+        language_terms={
+            "zho": ["循环"],
+            "deu": ["Schleife"],
+            "kor": ["반복", "루프"],
+            "san": ["āvṛtti"],
+            "lat": ["Circuitus", "Iteratio"],
+            "wen": ["循"],
+        },
+        paradigm_traits={
+            "zho": {"morphology": "compound", "radical": "彳+盾"},
+            "deu": {"morphology": "simple", "gender": "femininum"},
+            "san": {"morphology": "verbal_noun", "root": "vṛt_turn"},
+            "wen": {"morphology": "single_char", "radical": "彳"},
+        },
+    )
+
+    concepts["sequence"] = ConceptNode(
+        concept_id="sequence",
+        universal_name="Sequence",
+        description="Ordered execution of steps, one after another",
+        semantic_domain="execution",
+        children=["pipeline"],
+        parent="loop",
+        language_terms={
+            "zho": ["序列", "顺序"],
+            "deu": ["Sequenz", "Reihenfolge"],
+            "kor": ["순서"],
+            "san": ["krama", "anukrama"],
+            "lat": ["Series", "Ordo"],
+            "wen": ["序"],
+        },
+        paradigm_traits={
+            "san": {"morphology": "verbal_noun", "root": "kram_step"},
+            "wen": {"morphology": "single_char", "meaning": "order_sequence"},
+        },
+    )
+
+    concepts["parallel"] = ConceptNode(
+        concept_id="parallel",
+        universal_name="Parallel",
+        description="Simultaneous execution of multiple computations",
+        semantic_domain="execution",
+        children=["fork"],
+        parent="loop",
+        language_terms={
+            "zho": ["并行", "平行"],
+            "deu": ["Parallel"],
+            "kor": ["병렬"],
+            "san": ["sāhacarya", "samānakāla"],
+            "lat": ["Parallelus", "Concurrentia"],
+            "wen": ["並"],
+        },
+        paradigm_traits={
+            "zho": {"morphology": "compound", "radical": "彳+行"},
+            "wen": {"morphology": "single_char", "meaning": "side_by_side"},
+            "san": {"morphology": "compounding", "components": "sahya+acarya"},
+        },
+    )
+
+    concepts["fork"] = ConceptNode(
+        concept_id="fork",
+        universal_name="Fork",
+        description="Splitting execution into independent branches",
+        semantic_domain="execution",
+        children=["join"],
+        parent="parallel",
+        language_terms={
+            "zho": ["分支"],
+            "deu": ["Gabelung", "Verzweigung"],
+            "kor": ["분기"],
+            "san": ["śākhā"],
+            "lat": ["Furca", "Divisio"],
+            "wen": ["分"],
+        },
+        paradigm_traits={
+            "san": {"morphology": "simple", "meaning": "branch"},
+            "wen": {"morphology": "single_char", "meaning": "divide_branch"},
+        },
+    )
+
+    concepts["join"] = ConceptNode(
+        concept_id="join",
+        universal_name="Join",
+        description="Merging results from parallel branches",
+        semantic_domain="execution",
+        parent="fork",
+        language_terms={
+            "zho": ["合并", "汇合"],
+            "deu": ["Vereinigung", "Zusammenführung"],
+            "kor": ["합병"],
+            "san": ["sangati", "samāpti"],
+            "lat": ["Iunctio", "Coniunctio"],
+            "wen": ["合"],
+        },
+        paradigm_traits={
+            "san": {"morphology": "compounding", "root": "gam_go"},
+            "wen": {"morphology": "single_char", "meaning": "unite_join"},
+        },
+    )
+
+    concepts["pipeline"] = ConceptNode(
+        concept_id="pipeline",
+        universal_name="Pipeline",
+        description="Chained stages where output of one feeds into the next",
+        semantic_domain="execution",
+        parent="application",
+        language_terms={
+            "zho": ["流水线", "管道"],
+            "deu": ["Pipeline", "Rohrleitung"],
+            "kor": ["파이프라인"],
+            "san": ["srotas", "pravāha-mārga"],
+            "lat": ["Canalis"],
+            "wen": ["流"],
+        },
+        paradigm_traits={
+            "zho": {"morphology": "compound", "character_count": 3},
+            "san": {"morphology": "simple", "root": "sru_flow"},
+        },
+    )
+
+    concepts["chain"] = ConceptNode(
+        concept_id="chain",
+        universal_name="Chain",
+        description="Linked sequence of operations composed together",
+        semantic_domain="execution",
+        parent="application",
+        language_terms={
+            "zho": ["链", "链式"],
+            "deu": ["Kette", "Verkettung"],
+            "kor": ["체인", "연쇄"],
+            "san": ["śreṇī", "samūha"],
+            "lat": ["Catena", "Catena"],
+            "wen": ["鏈"],
+        },
+        paradigm_traits={
+            "zho": {"morphology": "simple", "metal_literal": "true"},
+            "wen": {"morphology": "single_char", "metal_literal": "true"},
+        },
+    )
+
+    concepts["map"] = ConceptNode(
+        concept_id="map",
+        universal_name="Map",
+        description="Transform each element of a collection by a function",
+        semantic_domain="execution",
+        parent="function",
+        language_terms={
+            "zho": ["映射", "变换"],
+            "deu": ["Abbildung", "Map"],
+            "kor": ["맵"],
+            "san": ["citrāṅkura"],
+            "lat": ["Mappa", "Imago"],
+            "wen": ["映"],
+        },
+        paradigm_traits={
+            "zho": {"morphology": "compound", "math_context": "true"},
+            "deu": {"morphology": "compound", "math_context": "true"},
+        },
+    )
+
+    concepts["filter"] = ConceptNode(
+        concept_id="filter",
+        universal_name="Filter",
+        description="Select elements from a collection matching a predicate",
+        semantic_domain="execution",
+        parent="function",
+        language_terms={
+            "zho": ["过滤", "筛选"],
+            "deu": ["Filter"],
+            "kor": ["필터"],
+            "san": ["chalanam", "parikṣa"],
+            "lat": ["Filtrum", "Cribro"],
+            "wen": ["濾"],
+        },
+        paradigm_traits={
+            "zho": {"morphology": "compound", "radical": "氵+过"},
+            "wen": {"morphology": "single_char", "radical": "氵"},
+        },
+    )
+
+    concepts["reduce"] = ConceptNode(
+        concept_id="reduce",
+        universal_name="Reduce",
+        description="Combine all elements of a collection into a single value",
+        semantic_domain="execution",
+        parent="function",
+        language_terms={
+            "zho": ["归约", "聚合"],
+            "deu": ["Reduktion", "Faltung"],
+            "kor": ["리덕션"],
+            "san": ["saṅkṣepa", "samācaraṇa"],
+            "lat": ["Reductio"],
+            "wen": ["約"],
+        },
+        paradigm_traits={
+            "zho": {"morphology": "compound", "math_context": "true"},
+            "san": {"morphology": "compounding", "meaning": "drawing_together"},
+            "wen": {"morphology": "single_char", "meaning": "reduce_compact"},
+        },
+    )
+
+
+def _build_data_concepts(concepts: Dict[str, ConceptNode]) -> None:
+    """Populate data domain concepts."""
+
+    concepts["value"] = ConceptNode(
+        concept_id="value",
+        universal_name="Value",
+        description="An immutable datum; the most fundamental unit of data",
+        semantic_domain="data",
+        children=["reference", "option"],
+        language_terms={
+            "zho": ["值"],
+            "deu": ["Wert"],
+            "kor": ["값"],
+            "san": ["artha"],
+            "lat": ["Valor"],
+            "wen": ["值"],
+        },
+        paradigm_traits={
+            "zho": {"morphology": "simple", "core_concept": "true"},
+            "san": {"morphology": "simple", "philosophy": "meaning_value"},
+            "wen": {"morphology": "single_char", "core_concept": "true"},
+        },
+    )
+
+    concepts["reference"] = ConceptNode(
+        concept_id="reference",
+        universal_name="Reference",
+        description="An indirect pointer to a value or location in memory",
+        semantic_domain="data",
+        parent="value",
+        language_terms={
+            "zho": ["引用"],
+            "deu": ["Referenz", "Bezug"],
+            "kor": ["참조"],
+            "san": ["sambandha", "nidarśana"],
+            "lat": ["Referentia", "Nomen"],
+            "wen": ["指"],
+        },
+        paradigm_traits={
+            "zho": {"morphology": "compound", "radical": "弓+用"},
+            "san": {"morphology": "compounding", "meaning": "connection"},
+            "wen": {"morphology": "single_char", "meaning": "point_indicate"},
+        },
+    )
+
+    concepts["container"] = ConceptNode(
+        concept_id="container",
+        universal_name="Container",
+        description="A data structure that holds other values",
+        semantic_domain="data",
+        children=["collection", "pair", "stream", "buffer", "channel"],
+        language_terms={
+            "zho": ["容器"],
+            "deu": ["Container", "Gefäß"],
+            "kor": ["컨테이너"],
+            "san": ["pātra", "bhājana"],
+            "lat": ["Vascus", "Receptaculum"],
+            "wen": ["器"],
+        },
+        paradigm_traits={
+            "deu": {"morphology": "loanword", "gender": "neutrum"},
+            "san": {"morphology": "simple", "root": "pā_hold"},
+            "wen": {"morphology": "single_char", "meaning": "vessel_receptacle"},
+        },
+    )
+
+    concepts["collection"] = ConceptNode(
+        concept_id="collection",
+        universal_name="Collection",
+        description="An ordered or unordered group of elements",
+        semantic_domain="data",
+        parent="container",
+        language_terms={
+            "zho": ["集合"],
+            "deu": ["Sammlung"],
+            "kor": ["집합"],
+            "san": ["samūha"],
+            "lat": ["Collectio"],
+            "wen": ["集"],
+        },
+        paradigm_traits={
+            "zho": {"morphology": "compound", "math_context": "true"},
+            "san": {"morphology": "compounding", "meaning": "together+gathered"},
+            "wen": {"morphology": "single_char", "meaning": "gather_collect"},
+        },
+    )
+
+    concepts["pair"] = ConceptNode(
+        concept_id="pair",
+        universal_name="Pair",
+        description="An ordered tuple of exactly two elements",
+        semantic_domain="data",
+        parent="container",
+        language_terms={
+            "zho": ["对", "对组"],
+            "deu": ["Paar"],
+            "kor": ["쌍"],
+            "san": ["yugala", "dvandva"],
+            "lat": ["Par", "Bini"],
+            "wen": ["對"],
+        },
+        paradigm_traits={
+            "deu": {"morphology": "simple", "gender": "neutrum"},
+            "san": {"morphology": "simple", "grammar": "dvandva_compound"},
+            "wen": {"morphology": "single_char", "meaning": "couple_pair"},
+        },
+    )
+
+    concepts["option"] = ConceptNode(
+        concept_id="option",
+        universal_name="Option",
+        description="A value that may or may not be present (nullable)",
+        semantic_domain="data",
+        parent="value",
+        language_terms={
+            "zho": ["选项", "可选"],
+            "deu": ["Option", "Vielleicht"],
+            "kor": ["옵션"],
+            "san": ["vikalpa"],
+            "lat": ["Optio", "Forsitan"],
+            "wen": ["擇"],
+        },
+        paradigm_traits={
+            "zho": {"morphology": "compound"},
+            "san": {"morphology": "simple", "meaning": "alternative"},
+            "deu": {"morphology": "loanword", "gender": "femininum"},
+        },
+    )
+
+    concepts["result"] = ConceptNode(
+        concept_id="result",
+        universal_name="Result",
+        description="A computation outcome that is either a success value or an error",
+        semantic_domain="data",
+        parent="value",
+        language_terms={
+            "zho": ["结果", "成效"],
+            "deu": ["Ergebnis", "Resultat"],
+            "kor": ["결과"],
+            "san": ["phala"],
+            "lat": ["Eventus", "Exitus"],
+            "wen": ["果"],
+        },
+        paradigm_traits={
+            "san": {"morphology": "simple", "root": "phal_bear_fruit"},
+            "wen": {"morphology": "single_char", "meaning": "fruit_result"},
+        },
+    )
+
+    concepts["stream"] = ConceptNode(
+        concept_id="stream",
+        universal_name="Stream",
+        description="A potentially infinite sequence of values evaluated lazily",
+        semantic_domain="data",
+        parent="container",
+        language_terms={
+            "zho": ["流", "数据流"],
+            "deu": ["Strom", "Datenstrom"],
+            "kor": ["스트림"],
+            "san": ["pravāha"],
+            "lat": ["Flumen", "Fluxus"],
+            "wen": ["川"],
+        },
+        paradigm_traits={
+            "deu": {"morphology": "simple", "gender": "maskulinum"},
+            "san": {"morphology": "simple", "root": "vah_carry_flow"},
+            "wen": {"morphology": "single_char", "meaning": "river_stream"},
+        },
+    )
+
+    concepts["buffer"] = ConceptNode(
+        concept_id="buffer",
+        universal_name="Buffer",
+        description="A temporary holding area for data between producer and consumer",
+        semantic_domain="data",
+        parent="container",
+        language_terms={
+            "zho": ["缓冲", "缓冲区"],
+            "deu": ["Puffer"],
+            "kor": ["버퍼"],
+            "san": ["parivāra", "avakāśa"],
+            "lat": ["Buffer", "Intermedium"],
+            "wen": ["蓄"],
+        },
+        paradigm_traits={
+            "zho": {"morphology": "compound", "character_count": 2},
+            "deu": {"morphology": "loanword", "gender": "maskulinum"},
+            "wen": {"morphology": "single_char", "meaning": "store_accumulate"},
+        },
+    )
+
+    concepts["channel"] = ConceptNode(
+        concept_id="channel",
+        universal_name="Channel",
+        description="A typed conduit for sending values between concurrent agents",
+        semantic_domain="data",
+        parent="container",
+        language_terms={
+            "zho": ["通道"],
+            "deu": ["Kanal"],
+            "kor": ["채널"],
+            "san": ["patha", "mārga"],
+            "lat": ["Fossa", "Via"],
+            "wen": ["道"],
+        },
+        paradigm_traits={
+            "deu": {"morphology": "simple", "gender": "maskulinum"},
+            "san": {"morphology": "simple", "meaning": "path_way"},
+            "wen": {"morphology": "single_char", "meaning": "way_path_channel"},
+        },
+    )
+
+
+def _build_scope_concepts(concepts: Dict[str, ConceptNode]) -> None:
+    """Populate scope domain concepts."""
+
+    concepts["global"] = ConceptNode(
+        concept_id="global",
+        universal_name="Global",
+        description="Accessible from anywhere in the program; top-level visibility",
+        semantic_domain="scope",
+        children=["local", "namespace"],
+        language_terms={
+            "zho": ["全局"],
+            "deu": ["Global"],
+            "kor": ["전역"],
+            "san": ["sārvabhauma"],
+            "lat": ["Globalis", "Universalis"],
+            "wen": ["天"],
+        },
+        paradigm_traits={
+            "san": {"morphology": "compounding", "meaning": "all+pervading"},
+            "wen": {"morphology": "single_char", "meaning": "heaven_all_encompassing"},
+        },
+    )
+
+    concepts["local"] = ConceptNode(
+        concept_id="local",
+        universal_name="Local",
+        description="Accessible only within a specific lexical block or function",
+        semantic_domain="scope",
+        parent="global",
+        language_terms={
+            "zho": ["局部"],
+            "deu": ["Lokal"],
+            "kor": ["지역"],
+            "san": ["sāmīpya", "sthānīya"],
+            "lat": ["Localis", "Proprius"],
+            "wen": ["地"],
+        },
+        paradigm_traits={
+            "san": {"morphology": "simple", "meaning": "nearby_proximity"},
+            "wen": {"morphology": "single_char", "meaning": "earth_local"},
+        },
+    )
+
+    concepts["closure"] = ConceptNode(
+        concept_id="closure",
+        universal_name="Closure",
+        description="A function that captures its lexical environment",
+        semantic_domain="scope",
+        children=["environment"],
+        language_terms={
+            "zho": ["闭包"],
+            "deu": ["Abschluss"],
+            "kor": ["클로저"],
+            "san": ["pāriṣadya", "bādha"],
+            "lat": ["Clausura"],
+            "wen": ["閉"],
+        },
+        paradigm_traits={
+            "zho": {"morphology": "compound", "translation_origin": "english"},
+            "deu": {"morphology": "simple", "gender": "maskulinum"},
+            "san": {"morphology": "compounding", "meaning": "surrounding_enclosure"},
+        },
+    )
+
+    concepts["environment"] = ConceptNode(
+        concept_id="environment",
+        universal_name="Environment",
+        description="The mapping of names to values in a given scope",
+        semantic_domain="scope",
+        parent="closure",
+        language_terms={
+            "zho": ["环境", "上下文"],
+            "deu": ["Umgebung", "Kontext"],
+            "kor": ["환경"],
+            "san": ["pariṇāma"],
+            "lat": ["Ambiens", "Contextus"],
+            "wen": ["境"],
+        },
+        paradigm_traits={
+            "zho": {"morphology": "compound"},
+            "wen": {"morphology": "single_char", "meaning": "boundary_realm"},
+        },
+    )
+
+    concepts["stack"] = ConceptNode(
+        concept_id="stack",
+        universal_name="Stack",
+        description="A last-in-first-out data structure for managing call frames",
+        semantic_domain="scope",
+        children=["namespace"],
+        language_terms={
+            "zho": ["栈", "栈帧"],
+            "deu": ["Stapel"],
+            "kor": ["스택"],
+            "san": ["rāśi", "ucchrita"],
+            "lat": ["Acervus", "Strues"],
+            "wen": ["積"],
+        },
+        paradigm_traits={
+            "deu": {"morphology": "simple", "gender": "maskulinum"},
+            "san": {"morphology": "simple", "meaning": "heap_pile"},
+            "wen": {"morphology": "single_char", "meaning": "accumulate_stack"},
+        },
+    )
+
+    concepts["heap"] = ConceptNode(
+        concept_id="heap",
+        universal_name="Heap",
+        description="A region of memory for dynamically allocated, long-lived data",
+        semantic_domain="scope",
+        language_terms={
+            "zho": ["堆", "堆内存"],
+            "deu": ["Halde"],
+            "kor": ["힙"],
+            "san": ["kūṭa", "upari-bhāga"],
+            "lat": ["Cumulus", "Acervus"],
+            "wen": ["堆"],
+        },
+        paradigm_traits={
+            "deu": {"morphology": "simple", "gender": "femininum"},
+            "wen": {"morphology": "single_char", "meaning": "heap_pile"},
+        },
+    )
+
+    concepts["namespace"] = ConceptNode(
+        concept_id="namespace",
+        universal_name="Namespace",
+        description="A named scope that prevents identifier collisions",
+        semantic_domain="scope",
+        children=["module"],
+        language_terms={
+            "zho": ["命名空间"],
+            "deu": ["Namensraum"],
+            "kor": ["네임스페이스"],
+            "san": ["sthāna", "saṃjñā-kṣetra"],
+            "lat": ["Nomen", "Spatium"],
+            "wen": ["名"],
+        },
+        paradigm_traits={
+            "zho": {"morphology": "compound", "character_count": 4},
+            "deu": {"morphology": "compound", "gender": "maskulinum"},
+            "san": {"morphology": "compounding", "meaning": "name_region"},
+            "wen": {"morphology": "single_char", "meaning": "name_identifier"},
+        },
+    )
+
+    concepts["module"] = ConceptNode(
+        concept_id="module",
+        universal_name="Module",
+        description="A self-contained unit of code with its own namespace",
+        semantic_domain="scope",
+        parent="namespace",
+        language_terms={
+            "zho": ["模块"],
+            "deu": ["Modul"],
+            "kor": ["모듈"],
+            "san": ["khaṇḍa", "pustaka"],
+            "lat": ["Modulus", "Liber"],
+            "wen": ["體"],
+        },
+        paradigm_traits={
+            "deu": {"morphology": "loanword", "gender": "neutrum"},
+            "wen": {"morphology": "single_char", "meaning": "body_entity"},
+        },
+    )
+
+
+def _build_communication_concepts(concepts: Dict[str, ConceptNode]) -> None:
+    """Populate communication domain concepts."""
+
+    concepts["message"] = ConceptNode(
+        concept_id="message",
+        universal_name="Message",
+        description="A discrete unit of data sent between agents",
+        semantic_domain="communication",
+        children=["request", "response", "event"],
+        language_terms={
+            "zho": ["消息"],
+            "deu": ["Nachricht"],
+            "kor": ["메시지"],
+            "san": ["sandeśa"],
+            "lat": ["Nuntius"],
+            "wen": ["訊"],
+        },
+        paradigm_traits={
+            "zho": {"morphology": "compound", "radical": "氵"},
+            "san": {"morphology": "compounding", "root": "sand_send"},
+            "wen": {"morphology": "single_char", "meaning": "tidings_message"},
+        },
+    )
+
+    concepts["request"] = ConceptNode(
+        concept_id="request",
+        universal_name="Request",
+        description="A message asking an agent to perform an action or return data",
+        semantic_domain="communication",
+        parent="message",
+        language_terms={
+            "zho": ["请求"],
+            "deu": ["Anfrage", "Bitte"],
+            "kor": ["요청"],
+            "san": ["yācanā", "prārthanā"],
+            "lat": ["Petitio"],
+            "wen": ["求"],
+        },
+        paradigm_traits={
+            "deu": {"morphology": "compound", "gender": "femininum"},
+            "san": {"morphology": "simple", "root": "yac_ask"},
+            "wen": {"morphology": "single_char", "meaning": "seek_request"},
+        },
+    )
+
+    concepts["response"] = ConceptNode(
+        concept_id="response",
+        universal_name="Response",
+        description="A message returned as a reply to a request",
+        semantic_domain="communication",
+        parent="message",
+        language_terms={
+            "zho": ["响应", "回应"],
+            "deu": ["Antwort"],
+            "kor": ["응답"],
+            "san": ["pratikriyā"],
+            "lat": ["Responsio"],
+            "wen": ["應"],
+        },
+        paradigm_traits={
+            "deu": {"morphology": "simple", "gender": "femininum"},
+            "san": {"morphology": "compounding", "meaning": "against+action"},
+            "wen": {"morphology": "single_char", "meaning": "reply_respond"},
+        },
+    )
+
+    concepts["event"] = ConceptNode(
+        concept_id="event",
+        universal_name="Event",
+        description="A notable occurrence that agents can observe and react to",
+        semantic_domain="communication",
+        parent="message",
+        language_terms={
+            "zho": ["事件"],
+            "deu": ["Ereignis"],
+            "kor": ["이벤트", "사건"],
+            "san": ["ghaṭanā"],
+            "lat": ["Eventus", "Res"],
+            "wen": ["事"],
+        },
+        paradigm_traits={
+            "deu": {"morphology": "compound", "gender": "neutrum"},
+            "san": {"morphology": "simple", "root": "ghaṭ_happen"},
+            "wen": {"morphology": "single_char", "meaning": "affair_event"},
+        },
+    )
+
+    concepts["signal"] = ConceptNode(
+        concept_id="signal",
+        universal_name="Signal",
+        description="An asynchronous notification or interruption",
+        semantic_domain="communication",
+        children=["broadcast"],
+        language_terms={
+            "zho": ["信号"],
+            "deu": ["Signal"],
+            "kor": ["신호"],
+            "san": ["lakṣaṇa", "sūcana"],
+            "lat": ["Signum"],
+            "wen": ["號"],
+        },
+        paradigm_traits={
+            "deu": {"morphology": "loanword", "gender": "neutrum"},
+            "san": {"morphology": "simple", "meaning": "mark_indicator"},
+            "wen": {"morphology": "single_char", "meaning": "call_signal"},
+        },
+    )
+
+    concepts["broadcast"] = ConceptNode(
+        concept_id="broadcast",
+        universal_name="Broadcast",
+        description="Sending a message to all interested agents simultaneously",
+        semantic_domain="communication",
+        parent="signal",
+        children=["publish"],
+        language_terms={
+            "zho": ["广播"],
+            "deu": ["Rundruf"],
+            "kor": ["방송"],
+            "san": ["saṃpradāya"],
+            "lat": ["Divulgatio", "Praedicatio"],
+            "wen": ["播"],
+        },
+        paradigm_traits={
+            "zho": {"morphology": "compound", "radical": "广+播"},
+            "san": {"morphology": "compounding", "meaning": "together+handing_down"},
+            "wen": {"morphology": "single_char", "meaning": "disseminate_broadcast"},
+        },
+    )
+
+    concepts["subscribe"] = ConceptNode(
+        concept_id="subscribe",
+        universal_name="Subscribe",
+        description="Registering to receive messages on a topic or channel",
+        semantic_domain="communication",
+        language_terms={
+            "zho": ["订阅"],
+            "deu": ["Abonnement"],
+            "kor": ["구독"],
+            "san": ["upalakṣaṇa"],
+            "lat": ["Subscriptio"],
+            "wen": ["聽"],
+        },
+        paradigm_traits={
+            "deu": {"morphology": "loanword", "gender": "neutrum"},
+            "san": {"morphology": "compounding", "meaning": "toward+observing"},
+            "wen": {"morphology": "single_char", "meaning": "listen_hear"},
+        },
+    )
+
+    concepts["publish"] = ConceptNode(
+        concept_id="publish",
+        universal_name="Publish",
+        description="Emitting a message to all subscribers of a topic",
+        semantic_domain="communication",
+        parent="broadcast",
+        language_terms={
+            "zho": ["发布"],
+            "deu": ["Veröffentlichung"],
+            "kor": ["발행"],
+            "san": ["prakāśana"],
+            "lat": ["Publicatio"],
+            "wen": ["布"],
+        },
+        paradigm_traits={
+            "zho": {"morphology": "compound"},
+            "san": {"morphology": "verbal_noun", "root": "prakāś_make_known"},
+            "wen": {"morphology": "single_char", "meaning": "declare_publish"},
+        },
+    )
+
+
+def _build_temporal_concepts(concepts: Dict[str, ConceptNode]) -> None:
+    """Populate temporal domain concepts."""
+
+    concepts["instant"] = ConceptNode(
+        concept_id="instant",
+        universal_name="Instant",
+        description="A specific, indivisible point in time",
+        semantic_domain="temporal",
+        children=["duration"],
+        language_terms={
+            "zho": ["瞬时", "时刻"],
+            "deu": ["Augenblick", "Moment"],
+            "kor": ["순간"],
+            "san": ["kṣaṇa"],
+            "lat": ["Momentum"],
+            "wen": ["時"],
+        },
+        paradigm_traits={
+            "san": {"morphology": "simple", "philosophy": "buddhist_instant"},
+            "wen": {"morphology": "single_char", "meaning": "time_instant"},
+        },
+    )
+
+    concepts["duration"] = ConceptNode(
+        concept_id="duration",
+        universal_name="Duration",
+        description="The length of a time interval between two instants",
+        semantic_domain="temporal",
+        parent="instant",
+        children=["interval"],
+        language_terms={
+            "zho": ["持续", "持续时间"],
+            "deu": ["Dauer"],
+            "kor": ["지속"],
+            "san": ["kāla", "sthiti"],
+            "lat": ["Duratio"],
+            "wen": ["久"],
+        },
+        paradigm_traits={
+            "san": {"morphology": "simple", "root": "kal_time"},
+            "wen": {"morphology": "single_char", "meaning": "long_enduring"},
+        },
+    )
+
+    concepts["interval"] = ConceptNode(
+        concept_id="interval",
+        universal_name="Interval",
+        description="A continuous range of time between two endpoints",
+        semantic_domain="temporal",
+        parent="duration",
+        language_terms={
+            "zho": ["区间", "间隔"],
+            "deu": ["Intervall"],
+            "kor": ["구간"],
+            "san": ["antarāla"],
+            "lat": ["Intervallum"],
+            "wen": ["間"],
+        },
+        paradigm_traits={
+            "san": {"morphology": "compounding", "meaning": "between_space"},
+            "wen": {"morphology": "single_char", "meaning": "between_space"},
+        },
+    )
+
+    concepts["schedule"] = ConceptNode(
+        concept_id="schedule",
+        universal_name="Schedule",
+        description="A plan for execution at a specific future time",
+        semantic_domain="temporal",
+        children=["deadline"],
+        language_terms={
+            "zho": ["调度", "时间表"],
+            "deu": ["Zeitplan"],
+            "kor": ["스케줄"],
+            "san": ["nirṇaya", "krama-kāla"],
+            "lat": ["Tempus", "Ordo"],
+            "wen": ["期"],
+        },
+        paradigm_traits={
+            "zho": {"morphology": "compound", "character_count": 2},
+            "wen": {"morphology": "single_char", "meaning": "appointed_time"},
+        },
+    )
+
+    concepts["deadline"] = ConceptNode(
+        concept_id="deadline",
+        universal_name="Deadline",
+        description="A point in time by which a computation must complete",
+        semantic_domain="temporal",
+        parent="schedule",
+        language_terms={
+            "zho": ["截止", "截止时间"],
+            "deu": ["Frist", "Termin"],
+            "kor": ["마감"],
+            "san": ["sīmā", "anta-kāla"],
+            "lat": ["Terminus", "Finis"],
+            "wen": ["限"],
+        },
+        paradigm_traits={
+            "deu": {"morphology": "simple", "gender": "femininum"},
+            "san": {"morphology": "simple", "meaning": "boundary_limit"},
+            "wen": {"morphology": "single_char", "meaning": "limit_boundary"},
+        },
+    )
+
+
+def _build_meta_concepts(concepts: Dict[str, ConceptNode]) -> None:
+    """Populate meta domain concepts."""
+
+    concepts["type"] = ConceptNode(
+        concept_id="type",
+        universal_name="Type",
+        description="A classification of values by their structure and behavior",
+        semantic_domain="meta",
+        children=["kind"],
+        language_terms={
+            "zho": ["类型"],
+            "deu": ["Typ"],
+            "kor": ["타입", "형"],
+            "san": ["jāti"],
+            "lat": ["Genus"],
+            "wen": ["類"],
+        },
+        paradigm_traits={
+            "deu": {"morphology": "simple", "gender": "maskulinum"},
+            "san": {"morphology": "simple", "philosophy": "nyaya_category"},
+            "wen": {"morphology": "single_char", "meaning": "category_class"},
+        },
+    )
+
+    concepts["kind"] = ConceptNode(
+        concept_id="kind",
+        universal_name="Kind",
+        description="A classification of types themselves (type of types)",
+        semantic_domain="meta",
+        parent="type",
+        language_terms={
+            "zho": ["种"],
+            "deu": ["Art", "Gattung"],
+            "kor": ["종"],
+            "san": ["prakāra"],
+            "lat": ["Species"],
+            "wen": ["種"],
+        },
+        paradigm_traits={
+            "deu": {"morphology": "simple", "gender": "femininum"},
+            "san": {"morphology": "compounding", "meaning": "sort_manner"},
+            "wen": {"morphology": "single_char", "meaning": "species_kind"},
+        },
+    )
+
+    concepts["class"] = ConceptNode(
+        concept_id="class",
+        universal_name="Class",
+        description="A blueprint defining the structure and behavior of objects",
+        semantic_domain="meta",
+        children=["trait"],
+        language_terms={
+            "zho": ["类", "类定义"],
+            "deu": ["Klasse"],
+            "kor": ["클래스"],
+            "san": ["varga"],
+            "lat": ["Classis"],
+            "wen": ["屬"],
+        },
+        paradigm_traits={
+            "deu": {"morphology": "simple", "gender": "femininum"},
+            "san": {"morphology": "simple", "grammar": "paninian_category"},
+            "wen": {"morphology": "single_char", "meaning": "genus_category"},
+        },
+    )
+
+    concepts["trait"] = ConceptNode(
+        concept_id="trait",
+        universal_name="Trait",
+        description="A named interface that types can implement",
+        semantic_domain="meta",
+        parent="class",
+        language_terms={
+            "zho": ["特征", "特性"],
+            "deu": ["Eigenschaft", "Merkmal"],
+            "kor": ["트레이트", "특성"],
+            "san": ["guṇa", "lakṣaṇa"],
+            "lat": ["Proprietas", "Indoles"],
+            "wen": ["德"],
+        },
+        paradigm_traits={
+            "deu": {"morphology": "compound", "gender": "femininum"},
+            "san": {"morphology": "simple", "philosophy": "quality_attribute"},
+            "wen": {"morphology": "single_char", "meaning": "virtue_property"},
+        },
+    )
+
 def _build_ontology() -> Dict[str, ConceptNode]:
     """Build the complete ontology with 50 concepts across 6 domains.
-
-    Loads concept definitions from ``ontology_data.json`` and
-    deserializes them into ConceptNode instances.
 
     Returns:
         Mapping from concept_id to ConceptNode.
     """
-    raw = _json.loads(_ONTOLOGY_PATH.read_text(encoding="utf-8"))
     concepts: Dict[str, ConceptNode] = {}
-    for cid, data in raw.items():
-        concepts[cid] = ConceptNode.from_dict(data)
+
+    _build_execution_concepts(concepts)
+
+    _build_data_concepts(concepts)
+
+    _build_scope_concepts(concepts)
+
+    _build_communication_concepts(concepts)
+
+    _build_temporal_concepts(concepts)
+
+    _build_meta_concepts(concepts)
+
     return concepts
 
 

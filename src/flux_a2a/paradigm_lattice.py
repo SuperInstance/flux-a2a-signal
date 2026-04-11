@@ -67,7 +67,7 @@ DIMENSION_WEIGHTS: Dict[str, float] = {
 
 # ══════════════════════════════════════════════════════════════════
 # Paradigm Point
-# ═══════════════════════DIMENSION_NAMES════════════════════════════════
+# ═══════════════════════════DIMENSION_NAMES════════════════════════════════
 
 @dataclass
 class ParadigmPoint:
@@ -172,6 +172,11 @@ class ParadigmLattice:
 
     def _populate(self) -> None:
         """Register all canonical paradigm points."""
+        self._populate_classical_languages()
+        self._populate_nl_paradigms()
+
+    def _populate_classical_languages(self) -> None:
+        """Register classical programming language paradigm points."""
 
         # ─── Classical Programming Languages ────────────────────
 
@@ -334,6 +339,9 @@ class ParadigmLattice:
             examples=["Java", "C#", "C++"],
             notes="Static OO. Verbose. Enterprise-scale. Checked exceptions.",
         ))
+
+    def _populate_nl_paradigms(self) -> None:
+        """Register FLUX natural language paradigm points."""
 
         # ─── FLUX Natural Language Paradigms ────────────────────
 
@@ -596,25 +604,22 @@ class ParadigmLattice:
         Returns:
             List of ParadigmPoint candidates representing vacant regions.
         """
-        import itertools
-
-        steps = int(1.0 / resolution) + 1
-        vacant = []
         threshold = resolution * 1.5  # cells with no point within this range
+        vacant = self._sample_vacancy_candidates(resolution, weighted, threshold)
+        # Deduplicate: cluster vacancies that are close to each other
+        clustered = self._cluster_vacancies(vacant, radius=resolution * 2)
+        return clustered
 
-        # Generate grid coordinates for each dimension
-        grids = []
-        for dim in DIMENSION_NAMES:
-            grids.append([i * resolution for i in range(steps + 1)])
-
-        occupied = self.all_points()
-
-        # Sample a manageable number of random candidate points
-        # (full grid of 6^8 = 1.7M cells is too much; use stratified sampling)
+    def _sample_vacancy_candidates(
+        self, resolution: float, weighted: bool, threshold: float,
+        sample_count: int = 5000,
+    ) -> List[ParadigmPoint]:
+        """Sample random candidate points and return those far from any occupied point."""
         import random
         random.seed(42)
-        sample_count = 5000
-        candidates_checked = 0
+
+        occupied = self.all_points()
+        vacant = []
 
         for _ in range(sample_count):
             sample_coords = {
@@ -628,7 +633,6 @@ class ParadigmLattice:
             nearest_dist = min(
                 sample.distance_to(p, weighted=weighted) for p in occupied
             )
-            candidates_checked += 1
 
             if nearest_dist > threshold:
                 vacant.append(ParadigmPoint(
@@ -637,9 +641,7 @@ class ParadigmLattice:
                     notes=f"Nearest occupied point at distance {nearest_dist:.2f}",
                 ))
 
-        # Deduplicate: cluster vacancies that are close to each other
-        clustered = self._cluster_vacancies(vacant, radius=resolution * 2)
-        return clustered
+        return vacant
 
     def _cluster_vacancies(
         self, vacancies: List[ParadigmPoint], radius: float = 0.4

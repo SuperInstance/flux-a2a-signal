@@ -260,10 +260,51 @@ class ParadigmFlow:
           - source < target: feature must be "emulated" (overhead)
           - |delta| < 0.15: direct mapping (efficient)
         """
+        dimension_bridges, all_lost, all_gained = (
+            self._build_dimension_bridges(source, target)
+        )
+
+        # Add NL-specific construct info
+        if source.name in NL_CONSTRUCTS:
+            all_lost.extend(NL_CONSTRUCTS[source.name]["unique"])
+        if target.name in NL_CONSTRUCTS:
+            all_gained.extend(NL_CONSTRUCTS[target.name]["unique"])
+
+        # Identify transformed constructs (constructs that exist in both
+        # paradigms but with different semantics)
+        all_transformed = self._identify_transformed(source, target)
+
+        # Compute cost metrics
+        cost = self._compute_bridge_cost(source, target, dimension_bridges)
+
+        # Natural bridge quality (inverse of total cost, normalized)
+        natural_bridge_quality = max(0.0, 1.0 - cost.total_cost)
+
+        # Check if intermediate point would help
+        via = self._suggest_intermediate(source, target, cost.total_cost)
+
+        return BridgeSimulation(
+            source=source,
+            target=target,
+            cost=cost,
+            constructs_lost=list(set(all_lost)),
+            constructs_gained=list(set(all_gained)),
+            constructs_transformed=all_transformed,
+            natural_bridge_quality=natural_bridge_quality,
+            via_intermediate=via,
+        )
+
+    def _build_dimension_bridges(
+        self, source: ParadigmPoint, target: ParadigmPoint,
+    ) -> Tuple[List[DimensionBridge], List[str], List[str]]:
+        """Build dimension bridges and collect lost/gained constructs.
+
+        Returns:
+            (dimension_bridges, all_lost, all_gained)
+        """
         dimension_bridges: List[DimensionBridge] = []
         all_lost: List[str] = []
         all_gained: List[str] = []
-        all_transformed: List[str] = []
 
         for dim in DIMENSION_NAMES:
             src_val = source.coordinates[dim]
@@ -305,35 +346,7 @@ class ParadigmFlow:
                 description=desc,
             ))
 
-        # Add NL-specific construct info
-        if source.name in NL_CONSTRUCTS:
-            all_lost.extend(NL_CONSTRUCTS[source.name]["unique"])
-        if target.name in NL_CONSTRUCTS:
-            all_gained.extend(NL_CONSTRUCTS[target.name]["unique"])
-
-        # Identify transformed constructs (constructs that exist in both
-        # paradigms but with different semantics)
-        all_transformed = self._identify_transformed(source, target)
-
-        # Compute cost metrics
-        cost = self._compute_bridge_cost(source, target, dimension_bridges)
-
-        # Natural bridge quality (inverse of total cost, normalized)
-        natural_bridge_quality = max(0.0, 1.0 - cost.total_cost)
-
-        # Check if intermediate point would help
-        via = self._suggest_intermediate(source, target, cost.total_cost)
-
-        return BridgeSimulation(
-            source=source,
-            target=target,
-            cost=cost,
-            constructs_lost=list(set(all_lost)),
-            constructs_gained=list(set(all_gained)),
-            constructs_transformed=all_transformed,
-            natural_bridge_quality=natural_bridge_quality,
-            via_intermediate=via,
-        )
+        return dimension_bridges, all_lost, all_gained
 
     def _identify_transformed(
         self, source: ParadigmPoint, target: ParadigmPoint
@@ -393,12 +406,10 @@ class ParadigmFlow:
 
         return best_intermediate
 
-    def _compute_bridge_cost(
-        self, source: ParadigmPoint, target: ParadigmPoint,
-        bridges: List[DimensionBridge],
-    ) -> BridgeCost:
-        """Quantify the four cost dimensions of bridging."""
-        # Expressiveness loss: severity of lossy dimensions (features you must remove)
+    def _compute_cost_components(
+        self, bridges: List[DimensionBridge],
+    ) -> Tuple[float, float, float]:
+        """Compute expressiveness_loss, performance_overhead, and cognitive_load."""
         lossy_severities = [b.severity for b in bridges if b.mode == "lossy"]
         overhead_severities = [b.severity for b in bridges if b.mode == "overhead"]
 
@@ -418,6 +429,18 @@ class ParadigmFlow:
             1 for b in bridges if abs(b.delta) > 0.3
         )
         cognitive_load = significant_changes / len(DIMENSION_NAMES)
+
+        return expressiveness_loss, performance_overhead, cognitive_load
+
+    def _compute_bridge_cost(
+        self, source: ParadigmPoint, target: ParadigmPoint,
+        bridges: List[DimensionBridge],
+    ) -> BridgeCost:
+        """Quantify the four cost dimensions of bridging."""
+        # Expressiveness loss, performance overhead, cognitive load
+        expressiveness_loss, performance_overhead, cognitive_load = (
+            self._compute_cost_components(bridges)
+        )
 
         # Semantic drift: weighted distance (captures meaning change)
         semantic_drift = min(source.distance_to(target, weighted=True) / 3.0, 1.0)
@@ -485,36 +508,56 @@ class ParadigmFlow:
         best_cost = direct_cost
 
         if max_hops >= 2:
-            # Try all single-hop intermediates
-            for intermediate in candidates:
-                if intermediate in (source, target):
-                    continue
-                hop1 = self.lattice.distance(source, intermediate, weighted=True)
-                hop2 = self.lattice.distance(intermediate, target, weighted=True)
-                total = hop1 + hop2
-                if total < best_cost:
-                    best_cost = total
-                    best_path = [source, intermediate, target]
+            best_path, best_cost = self._search_single_hop(
+                source, target, candidates, best_cost,
+            )
 
         if max_hops >= 3:
-            # Try all two-hop intermediates
-            for i1 in candidates:
-                if i1 in (source, target):
-                    continue
-                hop1 = self.lattice.distance(source, i1, weighted=True)
-                if hop1 >= best_cost:  # Prune: first hop already worse than direct
-                    continue
-                for i2 in candidates:
-                    if i2 in (source, target, i1):
-                        continue
-                    hop2 = self.lattice.distance(i1, i2, weighted=True)
-                    hop3 = self.lattice.distance(i2, target, weighted=True)
-                    total = hop1 + hop2 + hop3
-                    if total < best_cost:
-                        best_cost = total
-                        best_path = [source, i1, i2, target]
+            best_path, best_cost = self._search_double_hop(
+                source, target, candidates, best_cost,
+            )
 
         return best_path
+
+    def _search_single_hop(
+        self, source: str, target: str, candidates: List[str],
+        best_cost: float,
+    ) -> Tuple[List[str], float]:
+        """Try all single-hop intermediates; return (best_path, best_cost)."""
+        best_path = [source, target]
+        for intermediate in candidates:
+            if intermediate in (source, target):
+                continue
+            hop1 = self.lattice.distance(source, intermediate, weighted=True)
+            hop2 = self.lattice.distance(intermediate, target, weighted=True)
+            total = hop1 + hop2
+            if total < best_cost:
+                best_cost = total
+                best_path = [source, intermediate, target]
+        return best_path, best_cost
+
+    def _search_double_hop(
+        self, source: str, target: str, candidates: List[str],
+        best_cost: float,
+    ) -> Tuple[List[str], float]:
+        """Try all two-hop intermediates; return (best_path, best_cost)."""
+        best_path = [source, target]
+        for i1 in candidates:
+            if i1 in (source, target):
+                continue
+            hop1 = self.lattice.distance(source, i1, weighted=True)
+            if hop1 >= best_cost:  # Prune: first hop already worse than direct
+                continue
+            for i2 in candidates:
+                if i2 in (source, target, i1):
+                    continue
+                hop2 = self.lattice.distance(i1, i2, weighted=True)
+                hop3 = self.lattice.distance(i2, target, weighted=True)
+                total = hop1 + hop2 + hop3
+                if total < best_cost:
+                    best_cost = total
+                    best_path = [source, i1, i2, target]
+        return best_path, best_cost
 
     def compute_routing_table(
         self, names: Optional[List[str]] = None, max_hops: int = 2
@@ -556,38 +599,47 @@ class ParadigmFlow:
                 b = self.lattice.get(b_name)
                 dist = a.distance_to(b, weighted=True)
                 sim = self.simulate_bridge(a, b)
-
-                # Find complementary dimensions: one is high, other is low
-                complementary_dims = []
-                for dim in DIMENSION_NAMES:
-                    a_val = a.coordinates[dim]
-                    b_val = b.coordinates[dim]
-                    # Relaxed thresholds: high > 0.55, low < 0.45, gap > 0.20
-                    if (a_val > 0.55 and b_val < 0.45) or (
-                        b_val > 0.55 and a_val < 0.45
-                    ):
-                        if abs(a_val - b_val) > 0.20:
-                            complementary_dims.append(dim)
-
-                if len(complementary_dims) >= 2 and sim.cost.total_cost < 0.9:
-                    # Score: more complementary dims + moderate cost + NL bonus
-                    nl_bonus = 1.5 if (a.name in NL_CONSTRUCTS and b.name in NL_CONSTRUCTS) else 1.0
-                    cross_bonus = 1.3 if ((a.name in NL_CONSTRUCTS) != (b.name in NL_CONSTRUCTS)) else 1.0
-                    score = len(complementary_dims) * (1.0 - sim.cost.total_cost) * nl_bonus * cross_bonus
-                    opportunities.append({
-                        "paradigm_a": a_name,
-                        "paradigm_b": b_name,
-                        "distance": round(dist, 3),
-                        "complementary_dimensions": complementary_dims,
-                        "bridge_cost": round(sim.cost.total_cost, 3),
-                        "fusion_score": round(score, 3),
-                        "constructs_a_unique": NL_CONSTRUCTS.get(a_name, {}).get("unique", []),
-                        "constructs_b_unique": NL_CONSTRUCTS.get(b_name, {}).get("unique", []),
-                        "hypothesis": self._generate_fusion_hypothesis(a, b, complementary_dims),
-                    })
+                opp = self._evaluate_fusion_pair(a_name, b_name, a, b, dist, sim)
+                if opp is not None:
+                    opportunities.append(opp)
 
         opportunities.sort(key=lambda x: x["fusion_score"], reverse=True)
         return opportunities
+
+    def _evaluate_fusion_pair(
+        self, a_name: str, b_name: str, a: ParadigmPoint, b: ParadigmPoint,
+        dist: float, sim: BridgeSimulation,
+    ) -> Optional[Dict]:
+        """Evaluate a single pair for fusion opportunity; return dict or None."""
+        # Find complementary dimensions: one is high, other is low
+        complementary_dims = []
+        for dim in DIMENSION_NAMES:
+            a_val = a.coordinates[dim]
+            b_val = b.coordinates[dim]
+            # Relaxed thresholds: high > 0.55, low < 0.45, gap > 0.20
+            if (a_val > 0.55 and b_val < 0.45) or (
+                b_val > 0.55 and a_val < 0.45
+            ):
+                if abs(a_val - b_val) > 0.20:
+                    complementary_dims.append(dim)
+
+        if len(complementary_dims) >= 2 and sim.cost.total_cost < 0.9:
+            # Score: more complementary dims + moderate cost + NL bonus
+            nl_bonus = 1.5 if (a.name in NL_CONSTRUCTS and b.name in NL_CONSTRUCTS) else 1.0
+            cross_bonus = 1.3 if ((a.name in NL_CONSTRUCTS) != (b.name in NL_CONSTRUCTS)) else 1.0
+            score = len(complementary_dims) * (1.0 - sim.cost.total_cost) * nl_bonus * cross_bonus
+            return {
+                "paradigm_a": a_name,
+                "paradigm_b": b_name,
+                "distance": round(dist, 3),
+                "complementary_dimensions": complementary_dims,
+                "bridge_cost": round(sim.cost.total_cost, 3),
+                "fusion_score": round(score, 3),
+                "constructs_a_unique": NL_CONSTRUCTS.get(a_name, {}).get("unique", []),
+                "constructs_b_unique": NL_CONSTRUCTS.get(b_name, {}).get("unique", []),
+                "hypothesis": self._generate_fusion_hypothesis(a, b, complementary_dims),
+            }
+        return None
 
     def _generate_fusion_hypothesis(
         self, a: ParadigmPoint, b: ParadigmPoint, dims: List[str]
@@ -624,22 +676,13 @@ class ParadigmFlow:
 
 
 # ══════════════════════════════════════════════════════════════════
-# Report Generation
+# Report Generation — Section Helpers (private module-level)
 # ══════════════════════════════════════════════════════════════════
 
-def generate_simulation_report() -> str:
-    """Generate a comprehensive simulation report as markdown."""
-    lattice = ParadigmLattice()
-    flow = ParadigmFlow(lattice)
-
-    lines: List[str] = []
-    lines.append("# Paradigm Simulation Report: Rounds 4-6")
-    lines.append("")
-    lines.append("**Generated by:** ParadigmFlow simulation engine")
-    lines.append(f"**Paradigm points:** {len(lattice.all_points())} "
-                 f"({len(lattice.nl_points())} NL + {len(lattice.classical_points())} classical)")
-    lines.append("")
-
+def _report_section_overview_and_hub(
+    lines: List[str], lattice: ParadigmLattice,
+) -> None:
+    """Write Sections 1 (Lattice Overview) and 2 (Hub Analysis) to report."""
     # ── Section 1: Lattice Overview ──
     lines.append("## 1. Paradigm Lattice Overview")
     lines.append("")
@@ -677,10 +720,13 @@ def generate_simulation_report() -> str:
         lines.append(f"| {name} | {dist:.3f} |")
     lines.append("")
 
-    # ── Section 3: All-Pairs Bridge Costs ──
+
+def _report_section_costs(
+    lines: List[str], flow: ParadigmFlow, nl_names: List[str],
+) -> None:
+    """Write Section 3 (All-Pairs Bridge Cost Matrix) to report."""
     lines.append("## 3. All-Pairs Bridge Cost Matrix (NL Languages)")
     lines.append("")
-    nl_names = sorted(p.name for p in lattice.nl_points())
 
     lines.append("| Source → Target | Loss | Overhead | Cognitive | Drift | **Total** | Via |")
     lines.append("|---------------|------|----------|-----------|-------|----------|-----|")
@@ -695,7 +741,11 @@ def generate_simulation_report() -> str:
         )
     lines.append("")
 
-    # ── Section 4: Key Bridge Analyses ──
+
+def _report_section_key_bridges(
+    lines: List[str], flow: ParadigmFlow, lattice: ParadigmLattice,
+) -> None:
+    """Write Section 4 (Key Bridge Analyses) to report."""
     lines.append("## 4. Key Bridge Analyses")
     lines.append("")
 
@@ -748,7 +798,12 @@ def generate_simulation_report() -> str:
             lines.append(f"*{tgt_name}:* {tgt_info['bridge_notes']}")
         lines.append("")
 
-    # ── Section 5: Routing Table ──
+
+def _report_section_routing(
+    lines: List[str], flow: ParadigmFlow, lattice: ParadigmLattice,
+    nl_names: List[str],
+) -> None:
+    """Write Section 5 (Optimal Routing Map) to report."""
     lines.append("## 5. Optimal Routing Map")
     lines.append("")
     lines.append("Best path (up to 2 hops) between all NL paradigm points:")
@@ -771,7 +826,11 @@ def generate_simulation_report() -> str:
             lines.append(f"- **{src} → {tgt}**: direct ({direct:.3f})")
     lines.append("")
 
-    # ── Section 6: Fusion Opportunities ──
+
+def _report_section_fusion(
+    lines: List[str], flow: ParadigmFlow, nl_names: List[str],
+) -> None:
+    """Write Section 6 (Fusion Opportunities) to report."""
     lines.append("## 6. Paradigm Fusion Opportunities")
     lines.append("")
     lines.append("### 6a. NL-NL Fusion Opportunities")
@@ -809,7 +868,11 @@ def generate_simulation_report() -> str:
         lines.append(f"- **Hypothesis:** {opp['hypothesis']}")
         lines.append("")
 
-    # ── Section 7: Vacancy Detection ──
+
+def _report_section_vacancies(
+    lines: List[str], lattice: ParadigmLattice,
+) -> None:
+    """Write Section 7 (Paradigm Vacancies) to report."""
     lines.append("## 7. Paradigm Vacancies — Empty Regions of Paradigm Space")
     lines.append("")
     vacancies = lattice.detect_vacancies(resolution=0.25)
@@ -828,5 +891,32 @@ def generate_simulation_report() -> str:
     else:
         lines.append("No significant vacancies detected at current resolution.")
     lines.append("")
+
+
+# ══════════════════════════════════════════════════════════════════
+# Report Generation
+# ══════════════════════════════════════════════════════════════════
+
+def generate_simulation_report() -> str:
+    """Generate a comprehensive simulation report as markdown."""
+    lattice = ParadigmLattice()
+    flow = ParadigmFlow(lattice)
+
+    lines: List[str] = []
+    lines.append("# Paradigm Simulation Report: Rounds 4-6")
+    lines.append("")
+    lines.append("**Generated by:** ParadigmFlow simulation engine")
+    lines.append(f"**Paradigm points:** {len(lattice.all_points())} "
+                 f"({len(lattice.nl_points())} NL + {len(lattice.classical_points())} classical)")
+    lines.append("")
+
+    nl_names = sorted(p.name for p in lattice.nl_points())
+
+    _report_section_overview_and_hub(lines, lattice)
+    _report_section_costs(lines, flow, nl_names)
+    _report_section_key_bridges(lines, flow, lattice)
+    _report_section_routing(lines, flow, lattice, nl_names)
+    _report_section_fusion(lines, flow, nl_names)
+    _report_section_vacancies(lines, lattice)
 
     return "\n".join(lines)
