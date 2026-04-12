@@ -206,8 +206,13 @@ class TypeAlgebra:
 
     def _populate(self) -> None:
         """Populate all four semantic domains with equivalence classes."""
+        self._populate_noun_categories()
+        self._populate_register_honorific()
+        self._populate_contextual_scoping()
+        self._populate_temporal_execution()
 
-        # ── Domain 1: Noun Categorization ────────────────────────
+    def _populate_noun_categories(self) -> None:
+        """Populate Domain 1: Noun Categorization (noun_cat)."""
 
         # Active/masculine agents
         self._add_class(TypeEquivalenceClass(
@@ -383,7 +388,8 @@ class TypeAlgebra:
             notes="Default classifier 個 — context-dependent, no direct cross-language equivalent",
         ))
 
-        # ── Domain 2: Register / Honorific ──────────────────────
+    def _populate_register_honorific(self) -> None:
+        """Populate Domain 2: Register / Honorific (register)."""
 
         self._add_class(TypeEquivalenceClass(
             class_id="reg_highest_formal",
@@ -443,7 +449,8 @@ class TypeAlgebra:
             notes="Declarative: 평서문",
         ))
 
-        # ── Domain 3: Contextual Scoping ─────────────────────────
+    def _populate_contextual_scoping(self) -> None:
+        """Populate Domain 3: Contextual Scoping (scope)."""
 
         self._add_class(TypeEquivalenceClass(
             class_id="scope_surface",
@@ -482,7 +489,8 @@ class TypeAlgebra:
             notes="ZHO contextual classifiers: 個, 次",
         ))
 
-        # ── Domain 4: Temporal Execution ─────────────────────────
+    def _populate_temporal_execution(self) -> None:
+        """Populate Domain 4: Temporal Execution (temporal)."""
 
         self._add_class(TypeEquivalenceClass(
             class_id="temp_present",

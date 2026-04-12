@@ -290,8 +290,16 @@ class TranslationRuleSet:
         paradigm construct to a target paradigm construct.
         """
         rs = cls()
+        cls._add_zho_deu_rules(rs)
+        cls._add_deu_kor_rules(rs)
+        cls._add_kor_zho_rules(rs)
+        return rs
 
-        # ── ZHO ↔ DEU (classifier ↔ case/gender) ────────────────
+    @staticmethod
+    def _add_zho_deu_rules(rs: TranslationRuleSet) -> None:
+        """Add ZHO ↔ DEU translation rules (classifier ↔ case/gender)."""
+
+        # ── ZHO → DEU (classifier → gender/case) ────────────────
 
         # ZHO classifiers → DEU gender + plural
         rs.add(TranslationRule(
@@ -396,7 +404,7 @@ class TranslationRuleSet:
             notes="ZHO spatial extent (段) → DEU Akkusativ (object scope)",
         ))
 
-        # ── DEU ↔ ZHO (reverse) ──────────────────────────────────
+        # ── DEU → ZHO (reverse) ──────────────────────────────────
         rs.add(TranslationRule(
             rule_id="deu_zho_mask_person",
             from_lang="deu", to_lang="zho",
@@ -445,7 +453,11 @@ class TranslationRuleSet:
             notes="DEU Akkusativ → ZHO spatial extent scope (段)",
         ))
 
-        # ── DEU ↔ KOR (case ↔ honorific/particles) ──────────────
+    @staticmethod
+    def _add_deu_kor_rules(rs: TranslationRuleSet) -> None:
+        """Add DEU ↔ KOR translation rules (case ↔ honorific/particles)."""
+
+        # ── DEU → KOR (case → particles) ────────────────────────
 
         # DEU Kasus → KOR particles
         rs.add(TranslationRule(
@@ -514,7 +526,7 @@ class TranslationRuleSet:
             notes="DEU Neutrum → KOR haeche (informal, value/data)",
         ))
 
-        # ── KOR ↔ DEU (reverse) ──────────────────────────────────
+        # ── KOR → DEU (reverse) ──────────────────────────────────
         rs.add(TranslationRule(
             rule_id="kor_deu_subj_nom",
             from_lang="kor", to_lang="deu",
@@ -561,7 +573,11 @@ class TranslationRuleSet:
             notes="KOR haeche → DEU Neutrum (informal → value)",
         ))
 
-        # ── ZHO ↔ KOR (classifier ↔ particles) ──────────────────
+    @staticmethod
+    def _add_kor_zho_rules(rs: TranslationRuleSet) -> None:
+        """Add KOR ↔ ZHO translation rules (honorific ↔ classifier/particles)."""
+
+        # ── ZHO → KOR (classifier → particles) ──────────────────
 
         # ZHO 量词系统 → KOR 助词系统
         rs.add(TranslationRule(
@@ -612,7 +628,7 @@ class TranslationRuleSet:
             notes="ZHO generic classifier → KOR polite (topic marker 은/는)",
         ))
 
-        # ── KOR ↔ ZHO (reverse) ──────────────────────────────────
+        # ── KOR → ZHO (reverse) ──────────────────────────────────
         rs.add(TranslationRule(
             rule_id="kor_zho_subj_person",
             from_lang="kor", to_lang="zho",
@@ -649,8 +665,6 @@ class TranslationRuleSet:
             confidence_factor=0.6,
             notes="KOR plain → ZHO flat object classifier (張)",
         ))
-
-        return rs
 
 
 # ══════════════════════════════════════════════════════════════════
