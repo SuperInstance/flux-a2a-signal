@@ -1,5 +1,6 @@
 # FLUX-A2A: Signal Protocol
 
+[![Ci](https://github.com/SuperInstance/flux-a2a-signal/actions/workflows/ci.yml/badge.svg)](https://github.com/SuperInstance/flux-a2a-signal/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 > **"Language is the programming interface for agents."**
 > — *Captains Log, FLUX Fleet Doctrine*
 
