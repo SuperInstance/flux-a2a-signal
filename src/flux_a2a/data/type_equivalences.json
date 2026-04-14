@@ -1,0 +1,502 @@
+[
+  {
+    "class_id": "nc_active_person",
+    "name": "Active person / masculine / pushkara",
+    "slots": [
+      {
+        "language": "deu",
+        "native_tag": "maskulinum"
+      },
+      {
+        "language": "san",
+        "native_tag": "linga_pushkara"
+      },
+      {
+        "language": "zho",
+        "native_tag": "person"
+      },
+      {
+        "language": "lat",
+        "native_tag": "maskulinum"
+      }
+    ],
+    "degree": "near_lossless",
+    "semantic_domain": "noun_cat",
+    "notes": "Agents that initiate actions: 位(人), der, पुंल्लिङ्ग, masculinum"
+  },
+  {
+    "class_id": "nc_active_animal",
+    "name": "Active animal / machine",
+    "slots": [
+      {
+        "language": "zho",
+        "native_tag": "machine"
+      },
+      {
+        "language": "zho",
+        "native_tag": "animal"
+      }
+    ],
+    "degree": "near_lossless",
+    "semantic_domain": "noun_cat",
+    "notes": "Animals and machines as active agents: 隻, 台"
+  },
+  {
+    "class_id": "nc_container",
+    "name": "Container / feminine / stri",
+    "slots": [
+      {
+        "language": "deu",
+        "native_tag": "femininum"
+      },
+      {
+        "language": "zho",
+        "native_tag": "collective"
+      },
+      {
+        "language": "san",
+        "native_tag": "linga_stri"
+      },
+      {
+        "language": "zho",
+        "native_tag": "pair"
+      },
+      {
+        "language": "lat",
+        "native_tag": "femininum"
+      }
+    ],
+    "degree": "near_lossless",
+    "semantic_domain": "noun_cat",
+    "notes": "Containers that hold values: 群, 雙, die, स्त्रीलिङ्ग, femininum"
+  },
+  {
+    "class_id": "nc_value_flat",
+    "name": "Value / neuter / napumsaka — flat objects",
+    "slots": [
+      {
+        "language": "zho",
+        "native_tag": "flat_object"
+      },
+      {
+        "language": "deu",
+        "native_tag": "neutrum"
+      },
+      {
+        "language": "san",
+        "native_tag": "linga_napumsaka"
+      },
+      {
+        "language": "zho",
+        "native_tag": "small_round"
+      },
+      {
+        "language": "zho",
+        "native_tag": "long_flexible"
+      },
+      {
+        "language": "lat",
+        "native_tag": "neutrum"
+      }
+    ],
+    "degree": "partial",
+    "semantic_domain": "noun_cat",
+    "notes": "Flat/value objects: 張, 條, 顆 → das, नपुंसकलिङ्ग, neutrum"
+  },
+  {
+    "class_id": "nc_value_volume",
+    "name": "Container / volume — holding vessels",
+    "slots": [
+      {
+        "language": "zho",
+        "native_tag": "volume"
+      }
+    ],
+    "degree": "partial",
+    "semantic_domain": "noun_cat",
+    "notes": "Volume containers: 杯, 瓶"
+  },
+  {
+    "class_id": "nc_scope_nominative",
+    "name": "Scope: nominative / prathama / nominativus",
+    "slots": [
+      {
+        "language": "lat",
+        "native_tag": "nominativus"
+      },
+      {
+        "language": "deu",
+        "native_tag": "nominativ"
+      },
+      {
+        "language": "san",
+        "native_tag": "prathama"
+      }
+    ],
+    "degree": "lossless",
+    "semantic_domain": "noun_cat",
+    "notes": "Subject case across DEU/SAN/LAT: Nominativ, प्रथमा, Nominativus"
+  },
+  {
+    "class_id": "nc_scope_accusative",
+    "name": "Scope: accusative / dvitiya / accusativus",
+    "slots": [
+      {
+        "language": "san",
+        "native_tag": "dvitiya"
+      },
+      {
+        "language": "lat",
+        "native_tag": "accusativus"
+      },
+      {
+        "language": "deu",
+        "native_tag": "akkusativ"
+      }
+    ],
+    "degree": "lossless",
+    "semantic_domain": "noun_cat",
+    "notes": "Object case: Akkusativ, द्वितीया, Accusativus"
+  },
+  {
+    "class_id": "nc_scope_dative",
+    "name": "Scope: dative / chaturthi / dativus",
+    "slots": [
+      {
+        "language": "deu",
+        "native_tag": "dativ"
+      },
+      {
+        "language": "san",
+        "native_tag": "chaturthi"
+      },
+      {
+        "language": "lat",
+        "native_tag": "dativus"
+      }
+    ],
+    "degree": "lossless",
+    "semantic_domain": "noun_cat",
+    "notes": "Recipient case: Dativ, चतुर्थी, Dativus"
+  },
+  {
+    "class_id": "nc_scope_genitive",
+    "name": "Scope: genitive / shashthi / genitivus",
+    "slots": [
+      {
+        "language": "deu",
+        "native_tag": "genitiv"
+      },
+      {
+        "language": "lat",
+        "native_tag": "genitivus"
+      },
+      {
+        "language": "san",
+        "native_tag": "shashthi"
+      }
+    ],
+    "degree": "near_lossless",
+    "semantic_domain": "noun_cat",
+    "notes": "Possessive case: Genitiv, षष्ठी, Genitivus"
+  },
+  {
+    "class_id": "nc_scope_instrumental",
+    "name": "Scope: tritiya (instrumental) — SAN-only",
+    "slots": [
+      {
+        "language": "lat",
+        "native_tag": "ablativus"
+      },
+      {
+        "language": "san",
+        "native_tag": "tritiya"
+      }
+    ],
+    "degree": "partial",
+    "semantic_domain": "noun_cat",
+    "notes": "Instrumental/ablative: तृतीया, Ablativus (partial overlap)"
+  },
+  {
+    "class_id": "nc_scope_locative",
+    "name": "Scope: saptami (locative) — SAN-only",
+    "slots": [
+      {
+        "language": "san",
+        "native_tag": "saptami"
+      }
+    ],
+    "degree": "degraded",
+    "semantic_domain": "noun_cat",
+    "notes": "Locative case — no direct DEU/LAT equivalent: सप्तमी"
+  },
+  {
+    "class_id": "nc_scope_vocative",
+    "name": "Scope: sambodhana / vocativus — agent invocation",
+    "slots": [
+      {
+        "language": "lat",
+        "native_tag": "vocativus"
+      },
+      {
+        "language": "san",
+        "native_tag": "sambodhana"
+      }
+    ],
+    "degree": "lossless",
+    "semantic_domain": "noun_cat",
+    "notes": "Vocative / agent invocation: संबोधन, Vocativus"
+  },
+  {
+    "class_id": "nc_generic",
+    "name": "Generic / contextual — default classifier",
+    "slots": [
+      {
+        "language": "zho",
+        "native_tag": "generic"
+      }
+    ],
+    "degree": "degraded",
+    "semantic_domain": "noun_cat",
+    "notes": "Default classifier 個 — context-dependent, no direct cross-language equivalent"
+  },
+  {
+    "class_id": "reg_highest_formal",
+    "name": "Highest formal register",
+    "slots": [
+      {
+        "language": "kor",
+        "native_tag": "hasipsioche"
+      }
+    ],
+    "degree": "near_lossless",
+    "semantic_domain": "register",
+    "notes": "Korean formal highest: 하십시오체"
+  },
+  {
+    "class_id": "reg_subject_honorific",
+    "name": "Subject honorification",
+    "slots": [
+      {
+        "language": "kor",
+        "native_tag": "subject_honorific"
+      }
+    ],
+    "degree": "near_lossless",
+    "semantic_domain": "register",
+    "notes": "Korean subject honorific: 주체 높임"
+  },
+  {
+    "class_id": "reg_polite",
+    "name": "Polite register",
+    "slots": [
+      {
+        "language": "kor",
+        "native_tag": "haeyoche"
+      }
+    ],
+    "degree": "partial",
+    "semantic_domain": "register",
+    "notes": "Korean polite: 해요체"
+  },
+  {
+    "class_id": "reg_informal",
+    "name": "Informal / plain register",
+    "slots": [
+      {
+        "language": "kor",
+        "native_tag": "haerache"
+      },
+      {
+        "language": "kor",
+        "native_tag": "haeche"
+      },
+      {
+        "language": "kor",
+        "native_tag": "haeraoche"
+      }
+    ],
+    "degree": "partial",
+    "semantic_domain": "register",
+    "notes": "Korean informal levels: 해체, 해라체, 해라오체"
+  },
+  {
+    "class_id": "reg_speech_declarative",
+    "name": "Declarative speech act",
+    "slots": [
+      {
+        "language": "kor",
+        "native_tag": "declarative"
+      }
+    ],
+    "degree": "partial",
+    "semantic_domain": "register",
+    "notes": "Declarative: 평서문"
+  },
+  {
+    "class_id": "scope_surface",
+    "name": "Surface / spatial scope",
+    "slots": [
+      {
+        "language": "zho",
+        "native_tag": "flat_surface"
+      },
+      {
+        "language": "zho",
+        "native_tag": "spatial_extent"
+      }
+    ],
+    "degree": "partial",
+    "semantic_domain": "scope",
+    "notes": "Chinese spatial classifiers: 面, 段, 節"
+  },
+  {
+    "class_id": "scope_wen_context",
+    "name": "WEN context stack — topic/zero-anaphora",
+    "slots": [
+      {
+        "language": "wen",
+        "native_tag": "context_resolved"
+      },
+      {
+        "language": "wen",
+        "native_tag": "topic"
+      },
+      {
+        "language": "wen",
+        "native_tag": "zero_anaphora"
+      }
+    ],
+    "degree": "partial",
+    "semantic_domain": "scope",
+    "notes": "WEN context stack: 定題, 省略, 文境"
+  },
+  {
+    "class_id": "scope_zho_contextual",
+    "name": "ZHO contextual types",
+    "slots": [
+      {
+        "language": "zho",
+        "native_tag": "generic"
+      },
+      {
+        "language": "zho",
+        "native_tag": "abstract_action"
+      }
+    ],
+    "degree": "degraded",
+    "semantic_domain": "scope",
+    "notes": "ZHO contextual classifiers: 個, 次"
+  },
+  {
+    "class_id": "temp_present",
+    "name": "Present / active execution",
+    "slots": [
+      {
+        "language": "lat",
+        "native_tag": "praesens"
+      }
+    ],
+    "degree": "near_lossless",
+    "semantic_domain": "temporal",
+    "notes": "Latin present tense: Praesens — active execution loop"
+  },
+  {
+    "class_id": "temp_imperfect",
+    "name": "Imperfect / continuous loop",
+    "slots": [
+      {
+        "language": "lat",
+        "native_tag": "imperfectum"
+      }
+    ],
+    "degree": "partial",
+    "semantic_domain": "temporal",
+    "notes": "Latin imperfect: Imperfectum — continuous/repeated execution"
+  },
+  {
+    "class_id": "temp_perfect",
+    "name": "Perfect / completed",
+    "slots": [
+      {
+        "language": "lat",
+        "native_tag": "perfectum"
+      }
+    ],
+    "degree": "near_lossless",
+    "semantic_domain": "temporal",
+    "notes": "Latin perfect: Perfectum — completed cache write"
+  },
+  {
+    "class_id": "temp_pluperfect",
+    "name": "Pluperfect / rollback point",
+    "slots": [
+      {
+        "language": "lat",
+        "native_tag": "plusquamperfectum"
+      }
+    ],
+    "degree": "partial",
+    "semantic_domain": "temporal",
+    "notes": "Latin pluperfect: Plusquamperfectum — past-of-past rollback"
+  },
+  {
+    "class_id": "temp_future",
+    "name": "Future / deferred computation",
+    "slots": [
+      {
+        "language": "lat",
+        "native_tag": "futurum"
+      },
+      {
+        "language": "lat",
+        "native_tag": "futurum_exactum"
+      }
+    ],
+    "degree": "partial",
+    "semantic_domain": "temporal",
+    "notes": "Latin futures: Futurum, Futurum Exactum — deferred/scheduled"
+  },
+  {
+    "class_id": "temp_wen_execution",
+    "name": "WEN execution modes — military strategy opcodes",
+    "slots": [
+      {
+        "language": "wen",
+        "native_tag": "defend"
+      },
+      {
+        "language": "wen",
+        "native_tag": "attack"
+      },
+      {
+        "language": "wen",
+        "native_tag": "advance"
+      },
+      {
+        "language": "wen",
+        "native_tag": "retreat"
+      }
+    ],
+    "degree": "partial",
+    "semantic_domain": "temporal",
+    "notes": "WEN military strategy opcodes: 攻, 守, 進, 退"
+  },
+  {
+    "class_id": "temp_wen_control",
+    "name": "WEN control structures",
+    "slots": [
+      {
+        "language": "wen",
+        "native_tag": "sequence"
+      },
+      {
+        "language": "wen",
+        "native_tag": "loop"
+      }
+    ],
+    "degree": "partial",
+    "semantic_domain": "temporal",
+    "notes": "WEN control structures: 則 (sequence), 循 (loop)"
+  }
+]

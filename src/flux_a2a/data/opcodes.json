@@ -1,0 +1,1126 @@
+[
+  {
+    "name": "NOP",
+    "hex_value": 0,
+    "category": "core",
+    "operands": 0,
+    "description": "No operation",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "MOV",
+    "hex_value": 1,
+    "category": "core",
+    "operands": 2,
+    "description": "Copy register to register",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "LOAD",
+    "hex_value": 2,
+    "category": "core",
+    "operands": 2,
+    "description": "Load from memory/register",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "STORE",
+    "hex_value": 3,
+    "category": "core",
+    "operands": 2,
+    "description": "Store to memory/register",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "JMP",
+    "hex_value": 4,
+    "category": "core",
+    "operands": 1,
+    "description": "Unconditional jump",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "JZ",
+    "hex_value": 5,
+    "category": "core",
+    "operands": 2,
+    "description": "Jump if zero",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "JNZ",
+    "hex_value": 6,
+    "category": "core",
+    "operands": 2,
+    "description": "Jump if not zero",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "CALL",
+    "hex_value": 7,
+    "category": "core",
+    "operands": 1,
+    "description": "Call subroutine",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "IADD",
+    "hex_value": 8,
+    "category": "arithmetic",
+    "operands": 3,
+    "description": "Integer add",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "ISUB",
+    "hex_value": 9,
+    "category": "arithmetic",
+    "operands": 3,
+    "description": "Integer subtract",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "IMUL",
+    "hex_value": 10,
+    "category": "arithmetic",
+    "operands": 3,
+    "description": "Integer multiply",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "IDIV",
+    "hex_value": 11,
+    "category": "arithmetic",
+    "operands": 3,
+    "description": "Integer divide",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "IMOD",
+    "hex_value": 12,
+    "category": "arithmetic",
+    "operands": 3,
+    "description": "Integer modulo",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "INEG",
+    "hex_value": 13,
+    "category": "arithmetic",
+    "operands": 1,
+    "description": "Integer negate",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "INC",
+    "hex_value": 14,
+    "category": "arithmetic",
+    "operands": 1,
+    "description": "Increment by one",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "DEC",
+    "hex_value": 15,
+    "category": "arithmetic",
+    "operands": 1,
+    "description": "Decrement by one",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "IAND",
+    "hex_value": 16,
+    "category": "bitwise",
+    "operands": 3,
+    "description": "Bitwise AND",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "IOR",
+    "hex_value": 17,
+    "category": "bitwise",
+    "operands": 3,
+    "description": "Bitwise OR",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "IXOR",
+    "hex_value": 18,
+    "category": "bitwise",
+    "operands": 3,
+    "description": "Bitwise XOR",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "INOT",
+    "hex_value": 19,
+    "category": "bitwise",
+    "operands": 1,
+    "description": "Bitwise NOT",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "ISHL",
+    "hex_value": 20,
+    "category": "bitwise",
+    "operands": 3,
+    "description": "Shift left",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "ISHR",
+    "hex_value": 21,
+    "category": "bitwise",
+    "operands": 3,
+    "description": "Shift right (arithmetic)",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "ROTL",
+    "hex_value": 22,
+    "category": "bitwise",
+    "operands": 3,
+    "description": "Rotate left",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "ROTR",
+    "hex_value": 23,
+    "category": "bitwise",
+    "operands": 3,
+    "description": "Rotate right",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "ICMP",
+    "hex_value": 24,
+    "category": "comparison",
+    "operands": 2,
+    "description": "Integer compare (sets flags)",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "IEQ",
+    "hex_value": 25,
+    "category": "comparison",
+    "operands": 3,
+    "description": "Is equal",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "ILT",
+    "hex_value": 26,
+    "category": "comparison",
+    "operands": 3,
+    "description": "Is less than",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "ILE",
+    "hex_value": 27,
+    "category": "comparison",
+    "operands": 3,
+    "description": "Is less or equal",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "IGT",
+    "hex_value": 28,
+    "category": "comparison",
+    "operands": 3,
+    "description": "Is greater than",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "IGE",
+    "hex_value": 29,
+    "category": "comparison",
+    "operands": 3,
+    "description": "Is greater or equal",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "TEST",
+    "hex_value": 30,
+    "category": "comparison",
+    "operands": 1,
+    "description": "Test register value",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "SETCC",
+    "hex_value": 31,
+    "category": "comparison",
+    "operands": 1,
+    "description": "Set condition code",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "PUSH",
+    "hex_value": 32,
+    "category": "stack",
+    "operands": 1,
+    "description": "Push onto stack",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "POP",
+    "hex_value": 33,
+    "category": "stack",
+    "operands": 1,
+    "description": "Pop from stack",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "DUP",
+    "hex_value": 34,
+    "category": "stack",
+    "operands": 0,
+    "description": "Duplicate top of stack",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "SWAP",
+    "hex_value": 35,
+    "category": "stack",
+    "operands": 0,
+    "description": "Swap top two stack elements",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "ROT",
+    "hex_value": 36,
+    "category": "stack",
+    "operands": 0,
+    "description": "Rotate top three stack elements",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "ENTER",
+    "hex_value": 37,
+    "category": "stack",
+    "operands": 1,
+    "description": "Enter stack frame (push frame pointer)",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "LEAVE",
+    "hex_value": 38,
+    "category": "stack",
+    "operands": 1,
+    "description": "Leave stack frame",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "ALLOCA",
+    "hex_value": 39,
+    "category": "stack",
+    "operands": 1,
+    "description": "Allocate stack space",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "RET",
+    "hex_value": 40,
+    "category": "function",
+    "operands": 0,
+    "description": "Return from subroutine",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "CALL_IND",
+    "hex_value": 41,
+    "category": "function",
+    "operands": 2,
+    "description": "Indirect call via register",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "TAILCALL",
+    "hex_value": 42,
+    "category": "function",
+    "operands": 1,
+    "description": "Tail call (optimized recursion)",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "MOVI",
+    "hex_value": 43,
+    "category": "function",
+    "operands": 2,
+    "description": "Move immediate (signed 16-bit)",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "IREM",
+    "hex_value": 44,
+    "category": "function",
+    "operands": 3,
+    "description": "Integer remainder",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "CMP",
+    "hex_value": 45,
+    "category": "function",
+    "operands": 2,
+    "description": "Compare (sets flags)",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "JE",
+    "hex_value": 46,
+    "category": "function",
+    "operands": 2,
+    "description": "Jump if equal (ZF=1)",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "JNE",
+    "hex_value": 47,
+    "category": "function",
+    "operands": 2,
+    "description": "Jump if not equal (ZF=0)",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "REGION_CREATE",
+    "hex_value": 48,
+    "category": "memory",
+    "operands": 1,
+    "description": "Create memory region",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "REGION_DESTROY",
+    "hex_value": 49,
+    "category": "memory",
+    "operands": 1,
+    "description": "Destroy memory region",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "REGION_TRANSFER",
+    "hex_value": 50,
+    "category": "memory",
+    "operands": 2,
+    "description": "Transfer region ownership",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "MEMCOPY",
+    "hex_value": 51,
+    "category": "memory",
+    "operands": 3,
+    "description": "Copy memory block",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "MEMSET",
+    "hex_value": 52,
+    "category": "memory",
+    "operands": 3,
+    "description": "Fill memory block",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "MEMCMP",
+    "hex_value": 53,
+    "category": "memory",
+    "operands": 3,
+    "description": "Compare memory blocks",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "JL",
+    "hex_value": 54,
+    "category": "memory",
+    "operands": 2,
+    "description": "Jump if less than (flag-based)",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "JGE",
+    "hex_value": 55,
+    "category": "memory",
+    "operands": 2,
+    "description": "Jump if greater-or-equal (flag-based)",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "CAST",
+    "hex_value": 56,
+    "category": "type",
+    "operands": 2,
+    "description": "Cast to different type",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "BOX",
+    "hex_value": 57,
+    "category": "type",
+    "operands": 1,
+    "description": "Box value into dynamic container",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "UNBOX",
+    "hex_value": 58,
+    "category": "type",
+    "operands": 1,
+    "description": "Unbox dynamic value",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "CHECK_TYPE",
+    "hex_value": 59,
+    "category": "type",
+    "operands": 2,
+    "description": "Check runtime type",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "CHECK_BOUNDS",
+    "hex_value": 60,
+    "category": "type",
+    "operands": 2,
+    "description": "Check array bounds",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "FADD",
+    "hex_value": 64,
+    "category": "float",
+    "operands": 3,
+    "description": "Float add",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "FSUB",
+    "hex_value": 65,
+    "category": "float",
+    "operands": 3,
+    "description": "Float subtract",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "FMUL",
+    "hex_value": 66,
+    "category": "float",
+    "operands": 3,
+    "description": "Float multiply",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "FDIV",
+    "hex_value": 67,
+    "category": "float",
+    "operands": 3,
+    "description": "Float divide",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "FNEG",
+    "hex_value": 68,
+    "category": "float",
+    "operands": 1,
+    "description": "Float negate",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "FABS",
+    "hex_value": 69,
+    "category": "float",
+    "operands": 1,
+    "description": "Float absolute value",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "FMIN",
+    "hex_value": 70,
+    "category": "float",
+    "operands": 3,
+    "description": "Float minimum",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "FMAX",
+    "hex_value": 71,
+    "category": "float",
+    "operands": 3,
+    "description": "Float maximum",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "FEQ",
+    "hex_value": 72,
+    "category": "float_cmp",
+    "operands": 3,
+    "description": "Float equal",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "FLT",
+    "hex_value": 73,
+    "category": "float_cmp",
+    "operands": 3,
+    "description": "Float less than",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "FLE",
+    "hex_value": 74,
+    "category": "float_cmp",
+    "operands": 3,
+    "description": "Float less or equal",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "FGT",
+    "hex_value": 75,
+    "category": "float_cmp",
+    "operands": 3,
+    "description": "Float greater than",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "FGE",
+    "hex_value": 76,
+    "category": "float_cmp",
+    "operands": 3,
+    "description": "Float greater or equal",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "SLEN",
+    "hex_value": 80,
+    "category": "string",
+    "operands": 2,
+    "description": "String length",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "SCONCAT",
+    "hex_value": 81,
+    "category": "string",
+    "operands": 2,
+    "description": "String concatenation",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "SCHAR",
+    "hex_value": 82,
+    "category": "string",
+    "operands": 2,
+    "description": "Character access",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "SSUB",
+    "hex_value": 83,
+    "category": "string",
+    "operands": 3,
+    "description": "Substring",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "SCMP",
+    "hex_value": 84,
+    "category": "string",
+    "operands": 2,
+    "description": "String compare",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "TELL",
+    "hex_value": 96,
+    "category": "a2a",
+    "operands": 2,
+    "description": "Send one-way message to agent",
+    "first_version": 2,
+    "required_features": [
+      "a2a"
+    ]
+  },
+  {
+    "name": "ASK",
+    "hex_value": 97,
+    "category": "a2a",
+    "operands": 2,
+    "description": "Question/request to agent",
+    "first_version": 2,
+    "required_features": [
+      "a2a"
+    ]
+  },
+  {
+    "name": "DELEGATE",
+    "hex_value": 98,
+    "category": "a2a",
+    "operands": 2,
+    "description": "Transfer task to agent",
+    "first_version": 2,
+    "required_features": [
+      "a2a"
+    ]
+  },
+  {
+    "name": "BROADCAST",
+    "hex_value": 99,
+    "category": "a2a",
+    "operands": 1,
+    "description": "Announce to all agents",
+    "first_version": 2,
+    "required_features": [
+      "a2a"
+    ]
+  },
+  {
+    "name": "TRUST_CHECK",
+    "hex_value": 100,
+    "category": "a2a",
+    "operands": 2,
+    "description": "Verify trust relationship",
+    "first_version": 2,
+    "required_features": [
+      "a2a"
+    ]
+  },
+  {
+    "name": "CAP_REQUIRE",
+    "hex_value": 101,
+    "category": "a2a",
+    "operands": 2,
+    "description": "Require capability",
+    "first_version": 2,
+    "required_features": [
+      "a2a"
+    ]
+  },
+  {
+    "name": "OP_BRANCH",
+    "hex_value": 112,
+    "category": "a2a_extended",
+    "operands": 2,
+    "description": "Fork execution into parallel agents",
+    "first_version": 3,
+    "required_features": [
+      "a2a",
+      "branch"
+    ]
+  },
+  {
+    "name": "OP_MERGE",
+    "hex_value": 113,
+    "category": "a2a_extended",
+    "operands": 2,
+    "description": "Combine results from agents",
+    "first_version": 3,
+    "required_features": [
+      "a2a",
+      "merge"
+    ]
+  },
+  {
+    "name": "OP_DISCUSS",
+    "hex_value": 114,
+    "category": "a2a_extended",
+    "operands": 3,
+    "description": "Structured multi-round discussion",
+    "first_version": 3,
+    "required_features": [
+      "a2a",
+      "discuss"
+    ]
+  },
+  {
+    "name": "OP_DELEGATE",
+    "hex_value": 115,
+    "category": "a2a_extended",
+    "operands": 3,
+    "description": "Delegate with wait-for-result",
+    "first_version": 3,
+    "required_features": [
+      "a2a",
+      "delegate"
+    ]
+  },
+  {
+    "name": "OP_CONFIDENCE",
+    "hex_value": 116,
+    "category": "a2a_extended",
+    "operands": 1,
+    "description": "Set/query confidence level",
+    "first_version": 3,
+    "required_features": [
+      "a2a",
+      "confidence"
+    ]
+  },
+  {
+    "name": "OP_META",
+    "hex_value": 118,
+    "category": "a2a_extended",
+    "operands": 3,
+    "description": "Self-referential: VM modifies own opcodes",
+    "first_version": 3,
+    "required_features": [
+      "a2a",
+      "meta"
+    ]
+  },
+  {
+    "name": "IEXP",
+    "hex_value": 128,
+    "category": "paradigm",
+    "operands": 2,
+    "description": "Exponentiation (幂)",
+    "first_version": 2,
+    "required_features": [
+      "wen_paradigm"
+    ]
+  },
+  {
+    "name": "IROOT",
+    "hex_value": 129,
+    "category": "paradigm",
+    "operands": 2,
+    "description": "Square root (根)",
+    "first_version": 2,
+    "required_features": [
+      "wen_paradigm"
+    ]
+  },
+  {
+    "name": "VERIFY_TRUST",
+    "hex_value": 130,
+    "category": "paradigm",
+    "operands": 2,
+    "description": "Verify trust — 五常:信",
+    "first_version": 2,
+    "required_features": [
+      "wen_paradigm",
+      "confucian"
+    ]
+  },
+  {
+    "name": "CHECK_BOUNDS_WEN",
+    "hex_value": 131,
+    "category": "paradigm",
+    "operands": 2,
+    "description": "Check bounds — 五常:義",
+    "first_version": 2,
+    "required_features": [
+      "wen_paradigm",
+      "confucian"
+    ]
+  },
+  {
+    "name": "OPTIMIZE",
+    "hex_value": 132,
+    "category": "paradigm",
+    "operands": 2,
+    "description": "Optimize path — 五常:智",
+    "first_version": 2,
+    "required_features": [
+      "wen_paradigm",
+      "confucian"
+    ]
+  },
+  {
+    "name": "ATTACK",
+    "hex_value": 133,
+    "category": "paradigm",
+    "operands": 2,
+    "description": "Push data — 兵:攻",
+    "first_version": 2,
+    "required_features": [
+      "wen_paradigm",
+      "military"
+    ]
+  },
+  {
+    "name": "DEFEND",
+    "hex_value": 134,
+    "category": "paradigm",
+    "operands": 2,
+    "description": "Buffer data — 兵:守",
+    "first_version": 2,
+    "required_features": [
+      "wen_paradigm",
+      "military"
+    ]
+  },
+  {
+    "name": "ADVANCE",
+    "hex_value": 135,
+    "category": "paradigm",
+    "operands": 2,
+    "description": "Advance — 兵:進",
+    "first_version": 2,
+    "required_features": [
+      "wen_paradigm",
+      "military"
+    ]
+  },
+  {
+    "name": "RETREAT",
+    "hex_value": 136,
+    "category": "paradigm",
+    "operands": 2,
+    "description": "Back off — 兵:退",
+    "first_version": 2,
+    "required_features": [
+      "wen_paradigm",
+      "military"
+    ]
+  },
+  {
+    "name": "SEQUENCE",
+    "hex_value": 137,
+    "category": "paradigm",
+    "operands": 1,
+    "description": "Sequential — 制:則",
+    "first_version": 2,
+    "required_features": [
+      "wen_paradigm"
+    ]
+  },
+  {
+    "name": "LOOP",
+    "hex_value": 138,
+    "category": "paradigm",
+    "operands": 1,
+    "description": "Loop construct — 制:循",
+    "first_version": 2,
+    "required_features": [
+      "wen_paradigm"
+    ]
+  },
+  {
+    "name": "LOOP_START",
+    "hex_value": 160,
+    "category": "paradigm",
+    "operands": 1,
+    "description": "Loop begin — Imperfectum",
+    "first_version": 2,
+    "required_features": [
+      "lat_paradigm",
+      "temporal"
+    ]
+  },
+  {
+    "name": "LOOP_END",
+    "hex_value": 161,
+    "category": "paradigm",
+    "operands": 1,
+    "description": "Loop end",
+    "first_version": 2,
+    "required_features": [
+      "lat_paradigm",
+      "temporal"
+    ]
+  },
+  {
+    "name": "LAZY_DEFER",
+    "hex_value": 162,
+    "category": "paradigm",
+    "operands": 1,
+    "description": "Defer computation — Futurum",
+    "first_version": 2,
+    "required_features": [
+      "lat_paradigm",
+      "temporal"
+    ]
+  },
+  {
+    "name": "CACHE_LOAD",
+    "hex_value": 163,
+    "category": "paradigm",
+    "operands": 1,
+    "description": "Load cached result — Perfectum",
+    "first_version": 2,
+    "required_features": [
+      "lat_paradigm",
+      "temporal"
+    ]
+  },
+  {
+    "name": "CACHE_STORE",
+    "hex_value": 164,
+    "category": "paradigm",
+    "operands": 1,
+    "description": "Store to cache — Perfectum",
+    "first_version": 2,
+    "required_features": [
+      "lat_paradigm",
+      "temporal"
+    ]
+  },
+  {
+    "name": "ROLLBACK_SAVE",
+    "hex_value": 165,
+    "category": "paradigm",
+    "operands": 0,
+    "description": "Save state — Plusquamperfectum",
+    "first_version": 2,
+    "required_features": [
+      "lat_paradigm",
+      "temporal"
+    ]
+  },
+  {
+    "name": "ROLLBACK_RESTORE",
+    "hex_value": 166,
+    "category": "paradigm",
+    "operands": 1,
+    "description": "Restore state — Plusquamperfectum",
+    "first_version": 2,
+    "required_features": [
+      "lat_paradigm",
+      "temporal"
+    ]
+  },
+  {
+    "name": "EVENTUAL_SCHEDULE",
+    "hex_value": 167,
+    "category": "paradigm",
+    "operands": 1,
+    "description": "Schedule eventual — Futurum Exactum",
+    "first_version": 2,
+    "required_features": [
+      "lat_paradigm",
+      "temporal"
+    ]
+  },
+  {
+    "name": "SET_TOPIC",
+    "hex_value": 176,
+    "category": "paradigm",
+    "operands": 1,
+    "description": "Set topic register — 定題",
+    "first_version": 2,
+    "required_features": [
+      "topic"
+    ]
+  },
+  {
+    "name": "USE_TOPIC",
+    "hex_value": 177,
+    "category": "paradigm",
+    "operands": 1,
+    "description": "Use topic as implicit operand — 用題",
+    "first_version": 2,
+    "required_features": [
+      "topic"
+    ]
+  },
+  {
+    "name": "CLEAR_TOPIC",
+    "hex_value": 178,
+    "category": "paradigm",
+    "operands": 0,
+    "description": "Clear topic register — 清題",
+    "first_version": 2,
+    "required_features": [
+      "topic"
+    ]
+  },
+  {
+    "name": "PRINT",
+    "hex_value": 254,
+    "category": "system",
+    "operands": 1,
+    "description": "Print register value",
+    "first_version": 1,
+    "required_features": []
+  },
+  {
+    "name": "HALT",
+    "hex_value": 255,
+    "category": "system",
+    "operands": 0,
+    "description": "Halt execution",
+    "first_version": 1,
+    "required_features": []
+  }
+]

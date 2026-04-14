@@ -1,0 +1,372 @@
+[
+  {
+    "rule_id": "zho_deu_person_mask",
+    "from_lang": "zho",
+    "to_lang": "deu",
+    "source_pattern": "person",
+    "target_pattern": "maskulinum",
+    "transform_kind": "classifier_to_plural",
+    "confidence_factor": 0.85,
+    "notes": "ZHO person classifier (位) → DEU Maskulinum (active agent)"
+  },
+  {
+    "rule_id": "zho_deu_animal_mask",
+    "from_lang": "zho",
+    "to_lang": "deu",
+    "source_pattern": "animal",
+    "target_pattern": "maskulinum",
+    "transform_kind": "classifier_to_plural",
+    "confidence_factor": 0.8,
+    "notes": "ZHO animal classifier (隻) → DEU Maskulinum"
+  },
+  {
+    "rule_id": "zho_deu_collective_fem",
+    "from_lang": "zho",
+    "to_lang": "deu",
+    "source_pattern": "collective",
+    "target_pattern": "femininum",
+    "transform_kind": "classifier_to_plural",
+    "confidence_factor": 0.85,
+    "notes": "ZHO collective classifier (群) → DEU Femininum (container)"
+  },
+  {
+    "rule_id": "zho_deu_flat_neut",
+    "from_lang": "zho",
+    "to_lang": "deu",
+    "source_pattern": "flat_object",
+    "target_pattern": "neutrum",
+    "transform_kind": "classifier_to_plural",
+    "confidence_factor": 0.75,
+    "notes": "ZHO flat object classifier (張) → DEU Neutrum (value)"
+  },
+  {
+    "rule_id": "zho_deu_long_neut",
+    "from_lang": "zho",
+    "to_lang": "deu",
+    "source_pattern": "long_flexible",
+    "target_pattern": "neutrum",
+    "transform_kind": "classifier_to_plural",
+    "confidence_factor": 0.75,
+    "notes": "ZHO long flexible classifier (條) → DEU Neutrum"
+  },
+  {
+    "rule_id": "zho_deu_round_neut",
+    "from_lang": "zho",
+    "to_lang": "deu",
+    "source_pattern": "small_round",
+    "target_pattern": "neutrum",
+    "transform_kind": "classifier_to_plural",
+    "confidence_factor": 0.75,
+    "notes": "ZHO small round classifier (顆) → DEU Neutrum"
+  },
+  {
+    "rule_id": "zho_deu_machine_mask",
+    "from_lang": "zho",
+    "to_lang": "deu",
+    "source_pattern": "machine",
+    "target_pattern": "maskulinum",
+    "transform_kind": "classifier_to_plural",
+    "confidence_factor": 0.85,
+    "notes": "ZHO machine classifier (台) → DEU Maskulinum (active)"
+  },
+  {
+    "rule_id": "zho_deu_pair_fem",
+    "from_lang": "zho",
+    "to_lang": "deu",
+    "source_pattern": "pair",
+    "target_pattern": "femininum",
+    "transform_kind": "classifier_to_plural",
+    "confidence_factor": 0.85,
+    "notes": "ZHO pair classifier (雙) → DEU Femininum (container)"
+  },
+  {
+    "rule_id": "zho_deu_volume_fem",
+    "from_lang": "zho",
+    "to_lang": "deu",
+    "source_pattern": "volume",
+    "target_pattern": "femininum",
+    "transform_kind": "classifier_to_plural",
+    "confidence_factor": 0.8,
+    "notes": "ZHO volume classifier (杯/瓶) → DEU Femininum (container)"
+  },
+  {
+    "rule_id": "zho_deu_scope_nom",
+    "from_lang": "zho",
+    "to_lang": "deu",
+    "source_pattern": "flat_surface",
+    "target_pattern": "nominativ",
+    "transform_kind": "scope_to_particle",
+    "confidence_factor": 0.7,
+    "notes": "ZHO spatial scope (面) → DEU Nominativ (subject scope)"
+  },
+  {
+    "rule_id": "zho_deu_scope_acc",
+    "from_lang": "zho",
+    "to_lang": "deu",
+    "source_pattern": "spatial_extent",
+    "target_pattern": "akkusativ",
+    "transform_kind": "scope_to_particle",
+    "confidence_factor": 0.65,
+    "notes": "ZHO spatial extent (段) → DEU Akkusativ (object scope)"
+  },
+  {
+    "rule_id": "deu_zho_mask_person",
+    "from_lang": "deu",
+    "to_lang": "zho",
+    "source_pattern": "maskulinum",
+    "target_pattern": "person",
+    "transform_kind": "classifier_to_plural",
+    "confidence_factor": 0.85,
+    "notes": "DEU Maskulinum → ZHO person classifier (位)"
+  },
+  {
+    "rule_id": "deu_zho_fem_collective",
+    "from_lang": "deu",
+    "to_lang": "zho",
+    "source_pattern": "femininum",
+    "target_pattern": "collective",
+    "transform_kind": "classifier_to_plural",
+    "confidence_factor": 0.85,
+    "notes": "DEU Femininum → ZHO collective classifier (群)"
+  },
+  {
+    "rule_id": "deu_zho_neut_flat",
+    "from_lang": "deu",
+    "to_lang": "zho",
+    "source_pattern": "neutrum",
+    "target_pattern": "flat_object",
+    "transform_kind": "classifier_to_plural",
+    "confidence_factor": 0.75,
+    "notes": "DEU Neutrum → ZHO flat object classifier (張)"
+  },
+  {
+    "rule_id": "deu_zho_nom_surface",
+    "from_lang": "deu",
+    "to_lang": "zho",
+    "source_pattern": "nominativ",
+    "target_pattern": "flat_surface",
+    "transform_kind": "scope_to_particle",
+    "confidence_factor": 0.7,
+    "notes": "DEU Nominativ → ZHO flat surface scope (面)"
+  },
+  {
+    "rule_id": "deu_zho_acc_extent",
+    "from_lang": "deu",
+    "to_lang": "zho",
+    "source_pattern": "akkusativ",
+    "target_pattern": "spatial_extent",
+    "transform_kind": "scope_to_particle",
+    "confidence_factor": 0.65,
+    "notes": "DEU Akkusativ → ZHO spatial extent scope (段)"
+  },
+  {
+    "rule_id": "deu_kor_nom_i",
+    "from_lang": "deu",
+    "to_lang": "kor",
+    "source_pattern": "nominativ",
+    "target_pattern": "subject_honorific",
+    "transform_kind": "scope_to_particle",
+    "confidence_factor": 0.8,
+    "notes": "DEU Nominativ (이/가 subject marker) → KOR subject_honorific"
+  },
+  {
+    "rule_id": "deu_kor_acc_eul",
+    "from_lang": "deu",
+    "to_lang": "kor",
+    "source_pattern": "akkusativ",
+    "target_pattern": "object_honorific",
+    "transform_kind": "scope_to_particle",
+    "confidence_factor": 0.8,
+    "notes": "DEU Akkusativ (을/를 object marker) → KOR object_honorific"
+  },
+  {
+    "rule_id": "deu_kor_dat_ege",
+    "from_lang": "deu",
+    "to_lang": "kor",
+    "source_pattern": "dativ",
+    "target_pattern": "haeyoche",
+    "transform_kind": "gender_to_honorific",
+    "confidence_factor": 0.7,
+    "notes": "DEU Dativ (에게 recipient) → KOR haeyoche (polite register)"
+  },
+  {
+    "rule_id": "deu_kor_gen_ui",
+    "from_lang": "deu",
+    "to_lang": "kor",
+    "source_pattern": "genitiv",
+    "target_pattern": "haerache",
+    "transform_kind": "gender_to_honorific",
+    "confidence_factor": 0.65,
+    "notes": "DEU Genitiv (의 possessive) → KOR haerache (plain register)"
+  },
+  {
+    "rule_id": "deu_kor_mask_formal",
+    "from_lang": "deu",
+    "to_lang": "kor",
+    "source_pattern": "maskulinum",
+    "target_pattern": "hasipsioche",
+    "transform_kind": "gender_to_honorific",
+    "confidence_factor": 0.7,
+    "notes": "DEU Maskulinum → KOR hasipsioche (formal highest, active agent)"
+  },
+  {
+    "rule_id": "deu_kor_fem_polite",
+    "from_lang": "deu",
+    "to_lang": "kor",
+    "source_pattern": "femininum",
+    "target_pattern": "haeyoche",
+    "transform_kind": "gender_to_honorific",
+    "confidence_factor": 0.7,
+    "notes": "DEU Femininum → KOR haeyoche (polite, container/receiver)"
+  },
+  {
+    "rule_id": "deu_kor_neut_plain",
+    "from_lang": "deu",
+    "to_lang": "kor",
+    "source_pattern": "neutrum",
+    "target_pattern": "haeche",
+    "transform_kind": "gender_to_honorific",
+    "confidence_factor": 0.65,
+    "notes": "DEU Neutrum → KOR haeche (informal, value/data)"
+  },
+  {
+    "rule_id": "kor_deu_subj_nom",
+    "from_lang": "kor",
+    "to_lang": "deu",
+    "source_pattern": "subject_honorific",
+    "target_pattern": "nominativ",
+    "transform_kind": "scope_to_particle",
+    "confidence_factor": 0.8,
+    "notes": "KOR subject_honorific → DEU Nominativ"
+  },
+  {
+    "rule_id": "kor_deu_obj_acc",
+    "from_lang": "kor",
+    "to_lang": "deu",
+    "source_pattern": "object_honorific",
+    "target_pattern": "akkusativ",
+    "transform_kind": "scope_to_particle",
+    "confidence_factor": 0.8,
+    "notes": "KOR object_honorific → DEU Akkusativ"
+  },
+  {
+    "rule_id": "kor_deu_formal_mask",
+    "from_lang": "kor",
+    "to_lang": "deu",
+    "source_pattern": "hasipsioche",
+    "target_pattern": "maskulinum",
+    "transform_kind": "gender_to_honorific",
+    "confidence_factor": 0.7,
+    "notes": "KOR hasipsioche → DEU Maskulinum (formal → active)"
+  },
+  {
+    "rule_id": "kor_deu_polite_fem",
+    "from_lang": "kor",
+    "to_lang": "deu",
+    "source_pattern": "haeyoche",
+    "target_pattern": "femininum",
+    "transform_kind": "gender_to_honorific",
+    "confidence_factor": 0.7,
+    "notes": "KOR haeyoche → DEU Femininum (polite → container)"
+  },
+  {
+    "rule_id": "kor_deu_plain_neut",
+    "from_lang": "kor",
+    "to_lang": "deu",
+    "source_pattern": "haeche",
+    "target_pattern": "neutrum",
+    "transform_kind": "gender_to_honorific",
+    "confidence_factor": 0.65,
+    "notes": "KOR haeche → DEU Neutrum (informal → value)"
+  },
+  {
+    "rule_id": "zho_kor_person_subj",
+    "from_lang": "zho",
+    "to_lang": "kor",
+    "source_pattern": "person",
+    "target_pattern": "subject_honorific",
+    "transform_kind": "topic_marking",
+    "confidence_factor": 0.75,
+    "notes": "ZHO person classifier → KOR subject particle (은/는)"
+  },
+  {
+    "rule_id": "zho_kor_animal_subj",
+    "from_lang": "zho",
+    "to_lang": "kor",
+    "source_pattern": "animal",
+    "target_pattern": "subject_honorific",
+    "transform_kind": "topic_marking",
+    "confidence_factor": 0.7,
+    "notes": "ZHO animal classifier → KOR subject particle"
+  },
+  {
+    "rule_id": "zho_kor_collective_obj",
+    "from_lang": "zho",
+    "to_lang": "kor",
+    "source_pattern": "collective",
+    "target_pattern": "object_honorific",
+    "transform_kind": "topic_marking",
+    "confidence_factor": 0.7,
+    "notes": "ZHO collective classifier → KOR object particle (을/를)"
+  },
+  {
+    "rule_id": "zho_kor_flat_val",
+    "from_lang": "zho",
+    "to_lang": "kor",
+    "source_pattern": "flat_object",
+    "target_pattern": "haeche",
+    "transform_kind": "register_map",
+    "confidence_factor": 0.6,
+    "notes": "ZHO flat object → KOR plain register (value type)"
+  },
+  {
+    "rule_id": "zho_kor_topic",
+    "from_lang": "zho",
+    "to_lang": "kor",
+    "source_pattern": "generic",
+    "target_pattern": "haeyoche",
+    "transform_kind": "topic_marking",
+    "confidence_factor": 0.55,
+    "notes": "ZHO generic classifier → KOR polite (topic marker 은/는)"
+  },
+  {
+    "rule_id": "kor_zho_subj_person",
+    "from_lang": "kor",
+    "to_lang": "zho",
+    "source_pattern": "subject_honorific",
+    "target_pattern": "person",
+    "transform_kind": "topic_marking",
+    "confidence_factor": 0.75,
+    "notes": "KOR subject particle → ZHO person classifier (位)"
+  },
+  {
+    "rule_id": "kor_zho_obj_collective",
+    "from_lang": "kor",
+    "to_lang": "zho",
+    "source_pattern": "object_honorific",
+    "target_pattern": "collective",
+    "transform_kind": "topic_marking",
+    "confidence_factor": 0.7,
+    "notes": "KOR object particle → ZHO collective classifier (群)"
+  },
+  {
+    "rule_id": "kor_zho_formal_person",
+    "from_lang": "kor",
+    "to_lang": "zho",
+    "source_pattern": "hasipsioche",
+    "target_pattern": "person",
+    "transform_kind": "register_map",
+    "confidence_factor": 0.7,
+    "notes": "KOR formal → ZHO person classifier (respectful)"
+  },
+  {
+    "rule_id": "kor_zho_plain_flat",
+    "from_lang": "kor",
+    "to_lang": "zho",
+    "source_pattern": "haeche",
+    "target_pattern": "flat_object",
+    "transform_kind": "register_map",
+    "confidence_factor": 0.6,
+    "notes": "KOR plain → ZHO flat object classifier (張)"
+  }
+]

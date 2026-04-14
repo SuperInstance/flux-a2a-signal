@@ -196,7 +196,7 @@ class FluxOpcode(IntEnum):
     IEXP = 0x80            # Exponentiation
     IROOT = 0x81            # Square root
     VERIFY_TRUST = 0x82      # 五常: 信 — verify trust/integrity
-    CHECK_BOUNDS = 0x83       # 五常: 義 — validate bounds
+    CHECK_BOUNDS_WEN = 0x83       # 五常: 義 — validate bounds (wen paradigm)
     OPTIMIZE = 0x84          # 五常: 智 — optimize path
     ATTACK = 0x85            # 兵: 攻 — push data
     DEFEND = 0x86            # 兵: 守 — buffer data
@@ -247,153 +247,22 @@ _OPCODE_INFO: Dict[FluxOpcode, OpcodeInfo] = {}
 
 
 def _build_info_table() -> None:
-    """Build the complete opcode metadata table."""
-    table = {
-        # (opcode, category, operands, description, first_version, required_features)
-        # ── Core ──
-        (FluxOpcode.NOP,           OpcodeCategory.CORE,      0, "No operation",                                         1, ()),
-        (FluxOpcode.MOV,           OpcodeCategory.CORE,      2, "Copy register to register",                              1, ()),
-        (FluxOpcode.LOAD,          OpcodeCategory.CORE,      2, "Load from memory/register",                            1, ()),
-        (FluxOpcode.STORE,         OpcodeCategory.CORE,      2, "Store to memory/register",                            1, ()),
-        (FluxOpcode.JMP,           OpcodeCategory.CORE,      1, "Unconditional jump",                                  1, ()),
-        (FluxOpcode.JZ,            OpcodeCategory.CORE,      2, "Jump if zero",                                       1, ()),
-        (FluxOpcode.JNZ,           OpcodeCategory.CORE,      2, "Jump if not zero",                                   1, ()),
-        (FluxOpcode.CALL,          OpcodeCategory.CORE,      1, "Call subroutine",                                    1, ()),
-        # ── Arithmetic ──
-        (FluxOpcode.IADD,          OpcodeCategory.ARITHMETIC, 3, "Integer add",                                        1, ()),
-        (FluxOpcode.ISUB,          OpcodeCategory.ARITHMETIC, 3, "Integer subtract",                                     1, ()),
-        (FluxOpcode.IMUL,          OpcodeCategory.ARITHMETIC, 3, "Integer multiply",                                    1, ()),
-        (FluxOpcode.IDIV,          OpcodeCategory.ARITHMETIC, 3, "Integer divide",                                      1, ()),
-        (FluxOpcode.IMOD,          Opcode.ARITHMETIC, 3, "Integer modulo",                                      1, ()),
-        (FluxOpcode.INEG,          OpcodeCategory.ARITHMETIC, 1, "Integer negate",                                     1, ()),
-        (FluxOpcode.INC,           OpcodeCategory.ARITHMETIC, 1, "Increment by one",                                    1, ()),
-        (FluxOpcode.DEC,           Opcode.ARITHMETIC, 1, "Decrement by one",                                    1, ()),
-        # ── Bitwise ──
-        (FluxOpcode.IAND,          OpcodeCategory.BITWISE,    3, "Bitwise AND",                                        1, ()),
-        (FluxOpcode.IOR,           OpcodeCategory.BITWISE,    3, "Bitwise OR",                                         1, ()),
-        (FluxOpcode.IXOR,          OpcodeCategory.BITWISE,    3, "Bitwise XOR",                                         1, ()),
-        (FluxOpcode.INOT,          OpcodeCategory.BITWISE,    1, "Bitwise NOT",                                         1, ()),
-        (FluxOpcode.ISHL,          OpcodeCategory.BITWISE,    3, "Shift left",                                          1, ()),
-        (FluxOpcode.ISHR,          OpcodeCategory.BITWISE,    3, "Shift right (arithmetic)",                            1, ()),
-        (FluxOpcode.ROTL,          OpcodeCategory.BITWISE,    3, "Rotate left",                                         1, ()),
-        (FluxOpcode.ROTR,          OpcodeCategory.BITWISE,    3, "Rotate right",                                        1, ()),
-        # ── Comparison ──
-        (FluxOpcode.ICMP,          OpcodeCategory.COMPARISON,  2, "Integer compare (sets flags)",                           1, ()),
-        (FluxOpcode.IEQ,           OpcodeCategory.COMPARISON,  3, "Is equal",                                            1, ()),
-        (FluxOpcode.ILT,           OpcodeCategory.COMPARISON,  3, "Is less than",                                        1, ()),
-        (FluxOpcode.ILE,           OpcodeCategory.COMPARISON,  3, "Is less or equal",                                   1, ()),
-        (FluxOpcode.IGT,           OpcodeCategory.COMPARISON,  3, "Is greater than",                                     1, ()),
-        (FluxOpcode.IGE,           OpcodeCategory.COMPARISON,  3, "Is greater or equal",                                1, ()),
-        (FluxOpcode.TEST,          OpcodeCategory.COMPARISON,  1, "Test register value",                                 1, ()),
-        (FluxOpcode.SETCC,         OpcodeCategory.COMPARISON,  1, "Set condition code",                                    1, ()),
-        # ── Stack ──
-        (FluxOpcode.PUSH,          OpcodeCategory.STACK,      1, "Push onto stack",                                     1, ()),
-        (FluxOpcode.POP,           OpcodeCategory.STACK,      1, "Pop from stack",                                      1, ()),
-        (FluxOpcode.DUP,           OpcodeCategory.STACK,      0, "Duplicate top of stack",                               1, ()),
-        (FluxOpcode.SWAP,          OpcodeCategory.STACK,      0, "Swap top two stack elements",                           1, ()),
-        (FluxOpcode.ROT,           OpcodeCategory.STACK,      0, "Rotate top three stack elements",                      1, ()),
-        (FluxOpcode.ENTER,         OpcodeCategory.STACK,      1, "Enter stack frame (push frame pointer)",                 1, ()),
-        (FluxOpcode.LEAVE,         OpcodeCategory.STACK,      1, "Leave stack frame",                                  1, ()),
-        (FluxOpcode.ALLOCA,        OpcodeCategory.STACK,      1, "Allocate stack space",                                 1, ()),
-        # ── Function ──
-        (FluxOpcode.RET,           OpcodeCategory.FUNCTION,   0, "Return from subroutine",                            1, ()),
-        (FluxOpcode.CALL_IND,      OpcodeCategory.FUNCTION,   2, "Indirect call via register",                         1, ()),
-        (FluxOpcode.TAILCALL,      OpcodeCategory.FUNCTION,   1, "Tail call (optimized recursion)",                   1, ()),
-        (FluxOpcode.MOVI,          OpcodeCategory.FUNCTION,   2, "Move immediate (signed 16-bit)",                   1, ()),
-        (FluxOpcode.IREM,          OpcodeCategory.FUNCTION,   3, "Integer remainder",                                  1, ()),
-        (FluxOpcode.CMP,           OpcodeCategory.FUNCTION,   2, "Compare (sets flags)",                              1, ()),
-        (FluxOpcode.JE,            OpcodeCategory.FUNCTION,   2, "Jump if equal (ZF=1)",                             1, ()),
-        (FluxOpcode.JNE,           OpcodeCategory.FUNCTION,   2, "Jump if not equal (ZF=0)",                         1, ()),
-        # ── Memory ──
-        (FluxOpcode.REGION_CREATE,  OpcodeCategory.MEMORY,    1, "Create memory region",                                1, ()),
-        (FluxOpcode.REGION_DESTROY, OpcodeCategory.MEMORY,    1, "Destroy memory region",                               1, ()),
-        (FluxOpcode.REGION_TRANSFER,OpcodeCategory.MEMORY,    2, "Transfer region ownership",                           1, ()),
-        (FluxOpcode.MEMCOPY,       OpcodeCategory.MEMORY,    3, "Copy memory block",                                 1, ()),
-        (FluxOpcode.MEMSET,        OpcodeCategory.MEMORY,    3, "Fill memory block",                                  1, ()),
-        (FluxOpcode.MEMCMP,        OpcodeCategory.MEMORY,    3, "Compare memory blocks",                              1, ()),
-        (FluxOpcode.JL,            OpcodeCategory.MEMORY,    2, "Jump if less than (flag-based)",                    1, ()),
-        (FluxOpcode.JGE,           OpcodeCategory.MEMORY,    2, "Jump if greater-or-equal (flag-based)",            1, ()),
-        # ── Type ──
-        (FluxOpcode.CAST,          OpcodeCategory.TYPE,       2, "Cast to different type",                              1, ()),
-        (FluxOpcode.BOX,           OpcodeCategory.TYPE,       1, "Box value into dynamic container",                     1, ()),
-        (FluxOpcode.UNBOX,         OpcodeCategory.TYPE,       1, "Unbox dynamic value",                               1, ()),
-        (FluxOpcode.CHECK_TYPE,    OpcodeCategory.TYPE,       2, "Check runtime type",                                 1, ()),
-        (FluxOpcode.CHECK_BOUNDS,  OpcodeCategory.TYPE,       2, "Check array bounds",                                1, ()),
-        # ── Float ──
-        (FluxOpcode.FADD,          OpcodeCategory.FLOAT,      3, "Float add",                                         1, ()),
-        (FluxOpcode.FSUB,          OpcodeCategory.FLOAT,      3, "Float subtract",                                      1, ()),
-        (FluxOpcode.FMUL,          OpcodeCategory.FLOAT,      3, "Float multiply",                                    1, ()),
-        (FluxOpcode.FDIV,          OpcodeCategory.FLOAT,      3, "Float divide",                                      1, ()),
-        (FluxOpcode.FNEG,          OpcodeCategory.FLOAT,      1, "Float negate",                                     1, ()),
-        (FluxOpcode.FABS,          OpcodeCategory.FLOAT,      1, "Float absolute value",                                1, ()),
-        (FluxOpcode.FMIN,          OpcodeCategory.FLOAT,      3, "Float minimum",                                     1, ()),
-        (FluxOpcode.FMAX,          OpcodeCategory.FLOAT,      3, "Float maximum",                                     1, ()),
-        # ── Float comparison ──
-        (FluxOpcode.FEQ,           OpcodeCategory.FLOAT_CMP,  3, "Float equal",                                       1, ()),
-        (FluxOpcode.FLT,           OpcodeCategory.FLOAT_CMP,  3, "Float less than",                                    1, ()),
-        (FluxOpcode.FLE,           OpcodeCategory.FLOAT_CMP,  3, "Float less or equal",                               1, ()),
-        (FluxOpcode.FGT,           OpcodeCategory.FLOAT_CMP,  3, "Float greater than",                                 1, ()),
-        (FluxOpcode.FGE,           OpcodeCategory.FLOAT_CMP,  3, "Float greater or equal",                              1, ()),
-        # ── String ──
-        (FluxOpcode.SLEN,          OpcodeCategory.STRING,    2, "String length",                                      1, ()),
-        (FluxOpcode.SCONCAT,       OpcodeCategory.STRING,    2, "String concatenation",                                1, ()),
-        (FluxOpcode.SCHAR,         OpcodeCategory.STRING,    2, "Character access",                                    1, ()),
-        (FluxOpcode.SSUB,          OpcodeCategory.STRING,    3, "Substring",                                          1, ()),
-        (FluxOpcode.SCMP,          OpcodeCategory.STRING,    2, "String compare",                                      1, ()),
-        # ── A2A existing ──
-        (FluxOpcode.TELL,          OpcodeCategory.A2A,        2, "Send one-way message to agent",                         2, ("a2a",)),
-        (FluxOpcode.ASK,           OpcodeCategory.A2A,        2, "Question/request to agent",                            2, ("a2a",)),
-        (FluxOpcode.DELEGATE,      OpcodeCategory.A2A,        2, "Transfer task to agent",                             2, ("a2a",)),
-        (FluxOpcode.BROADCAST,     OpcodeCategory.A2A,        1, "Announce to all agents",                             2, ("a2a",)),
-        (FluxOpcode.TRUST_CHECK,    OpcodeCategory.A2A,        2, "Verify trust relationship",                          2, ("a2a",)),
-        (FluxOpcode.CAP_REQUIRE,    OpcodeCategory.A2A,        2, "Require capability",                                  2, ("a2a",)),
-        # ── A2A new (agent coordination) ──
-        (FluxOpcode.OP_BRANCH,       OpcodeCategory.A2A_EXT,   2, "Fork execution into parallel agents",                 3, ("a2a", "branch")),
-        (FluxOpcode.OP_MERGE,       OpcodeCategory.A2A_EXT,   2, "Combine results from agents",                        3, ("a2a", "merge")),
-        (FluxOpcode.OP_DISCUSS,     OpcodeCategory.A2A_EXT,   3, "Structured multi-round discussion",                    3, ("a2a", "discuss")),
-        (FluxOpcode.OP_DELEGATE,    OpcodeCategory.A2A_EXT,   3, "Delegate with wait-for-result",                      3, ("a2a", "delegate")),
-        (FluxOpcode.OP_CONFIDENCE,  OpcodeCategory.A2A_EXT,   1, "Set/query confidence level",                         3, ("a2a", "confidence")),
-        (FluxOpcode.OP_META,        OpcodeCategory.A2A_EXT,   3, "Self-referential: VM modifies own opcodes",            3, ("a2a", "meta")),
-        # ── Paradigm: Classical Chinese (wen) ──
-        (FluxOpcode.IEXP,          OpcodeCategory.PARADIGM,   2, "Exponentiation (幂)",                                 2, ("wen_paradigm",)),
-        (FluxOpcode.IROOT,         OpcodeCategory.PARADIGM,   2, "Square root (根)",                                    2, ("wen_paradigm",)),
-        (FluxOpcode.VERIFY_TRUST,   OpcodeCategory.PARADIGM,   2, "Verify trust — 五常:信",                           2, ("wen_paradigm", "confucian")),
-        (FluxOpcode.CHECK_BOUNDS,  OpcodeCategory.PARADIGM,   2, "Check bounds — 五常:義",                            2, ("wen_paradigm", "confucian")),
-        (FluxOpcode.OPTIMIZE,     OpcodeCategory.PARADIGM,   2, "Optimize path — 五常:智",                           2, ("wen_paradigm", "confucian")),
-        (FluxOpcode.ATTACK,        OpcodeCategory.PARADIGM,   2, "Push data — 兵:攻",                                  2, ("wen_paradigm", "military")),
-        (FluxOpcode.DEFEND,        OpcodeCategory.PARADIGM,   2, "Buffer data — 兵:守",                                  2, ("wen_paradigm", "military")),
-        (FluxOpcode.ADVANCE,       OpcodeCategory.PARADIGM,   2, "Advance — 兵:進",                                    2, ("wen_paradigm", "military")),
-        (FluxOpcode.RETREAT,       OpcodeCategory.PARADIGM,   2, "Back off — 兵:退",                                    2, ("wen_paradigm", "military")),
-        (FluxOpcode.SEQUENCE,      OpcodeCategory.PARADIGM,   1, "Sequential — 制:則",                                   2, ("wen_paradigm",)),
-        (FluxOpcode.LOOP,          OpcodeCategory.PARADIGM,   1, "Loop construct — 制:循",                               2, ("wen_paradigm",)),
-        # ── Paradigm: Latin temporal (lat) ──
-        (FluxOpcode.LOOP_START,    OpcodeCategory.PARADIGM,   1, "Loop begin — Imperfectum",                          2, ("lat_paradigm", "temporal")),
-        (FluxOpcode.LOOP_END,      OpcodeCategory.PARADIGM,   1, "Loop end",                                          2, ("lat_paradigm", "temporal")),
-        (FluxOpcode.LAZY_DEFER,    OpcodeCategory.PARADIGM,   1, "Defer computation — Futurum",                          2, ("lat_paradigm", "temporal")),
-        (FluxOpcode.CACHE_LOAD,    OpcodeCategory.PARADIGM,   1, "Load cached result — Perfectum",                        2, ("lat_paradigm", "temporal")),
-        (FluxOpcode.CACHE_STORE,   OpcodeCategory.PARADIGM,   1, "Store to cache — Perfectum",                             2, ("lat_paradigm", "temporal")),
-        (FluxOpcode.ROLLBACK_SAVE, OpcodeCategory.PARADIGM,   0, "Save state — Plusquamperfectum",                     2, ("lat_paradigm", "temporal")),
-        (FluxOpcode.ROLLBACK_RESTORE,OpcodeCategory.PARADIGM,   1, "Restore state — Plusquamperfectum",                  2, ("lat_paradigm", "temporal")),
-        (FluxOpcode.EVENTUAL_SCHEDULE,OpcodeCategory.PARADIGM,   1, "Schedule eventual — Futurum Exactum",                2, ("lat_paradigm", "temporal")),
-        # ── Paradigm: Topic register ──
-        (FluxOpcode.SET_TOPIC,     OpcodeCategory.PARADIGM,   1, "Set topic register — 定題",                             2, ("topic",)),
-        (FluxOpcode.USE_TOPIC,     OpcodeCategory.PARADIGM,   1, "Use topic as implicit operand — 用題",                    2, ("topic",)),
-        (FluxOpcode.CLEAR_TOPIC,   OpcodeCategory.PARADIGM,   0, "Clear topic register — 清題",                           2, ("topic",)),
-        # ── System ──
-        (FluxOpcode.PRINT,         OpcodeCategory.SYSTEM,    1, "Print register value",                                 1, ()),
-        (FluxOpcode.HALT,          OpcodeCategory.SYSTEM,    0, "Halt execution",                                    1, ()),
-    }
-
-    for op, cat, n_ops, desc, ver, feats in table:
-        _OPCODE_INFO[op] = OpcodeInfo(
-            name=op.name,
-            hex_value=int(op),
-            category=cat,
-            category_id=cat.value,
-            operands=n_ops,
-            description=desc,
-            first_version=ver,
-            required_features=feats,
+    """Build the opcode metadata table from JSON data file."""
+    _data_path = Path(__file__).parent / "data" / "opcodes.json"
+    with open(_data_path, "r", encoding="utf-8") as _f:
+        _raw_list = json.load(_f)
+    for _entry in _raw_list:
+        _op = FluxOpcode[_entry["name"]]
+        _cat = OpcodeCategory(_entry["category"])
+        _OPCODE_INFO[_op] = OpcodeInfo(
+            name=_entry["name"],
+            hex_value=_entry["hex_value"],
+            category=_cat,
+            category_id=_cat.value,
+            operands=_entry["operands"],
+            description=_entry["description"],
+            first_version=_entry["first_version"],
+            required_features=tuple(_entry.get("required_features", [])),
         )
 
 
